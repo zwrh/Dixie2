@@ -2,9 +2,10 @@
 	import { page } from '$app/state';
 	import { goto } from '$app/navigation';
 	import { theme } from '$lib/stores/theme.svelte';
+	import { clearToken } from '$lib/auth';
 
-	async function handleLogout() {
-		await fetch('/api/logout', { method: 'POST' });
+	function handleLogout() {
+		clearToken();
 		goto('/login');
 	}
 

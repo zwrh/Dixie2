@@ -73,6 +73,16 @@ def init_db():
         )
     """
     )
+    db.execute(
+        """
+        CREATE TABLE IF NOT EXISTS ping_log (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            timestamp TEXT NOT NULL DEFAULT (datetime('now')),
+            total_clients INTEGER NOT NULL,
+            responsive INTEGER NOT NULL
+        )
+    """
+    )
     db.commit()
 
     # Seed default settings if not exists
@@ -303,6 +313,47 @@ def get_stats():
     )
 
 
+@app.route("/api/contact-rate", methods=["GET"])
+@auth_required
+def contact_rate():
+    range_param = request.args.get("range", "month")
+
+    now_expr = "datetime('now')"
+    if range_param == "day":
+        since = f"{now_expr}, '-1 day'"
+    elif range_param == "week":
+        since = f"{now_expr}, '-7 days'"
+    elif range_param == "month":
+        since = f"{now_expr}, '-30 days'"
+    elif range_param == "year":
+        since = f"{now_expr}, '-365 days'"
+    else:  # all
+        since = None
+
+    db = get_db()
+    if since:
+        rows = db.execute(
+            f"SELECT timestamp, total_clients, responsive FROM ping_log "
+            f"WHERE timestamp >= {since} ORDER BY timestamp ASC"
+        ).fetchall()
+    else:
+        rows = db.execute(
+            "SELECT timestamp, total_clients, responsive FROM ping_log "
+            "ORDER BY timestamp ASC"
+        ).fetchall()
+
+    return jsonify(
+        [
+            {
+                "timestamp": row["timestamp"],
+                "total": row["total_clients"],
+                "responsive": row["responsive"],
+            }
+            for row in rows
+        ]
+    )
+
+
 @app.route("/api/settings", methods=["GET"])
 @auth_required
 def get_settings():
@@ -369,6 +420,15 @@ def ping_clients():
                 "UPDATE clients SET status = 'non-responsive' WHERE id = ?",
                 (client["id"],),
             )
+
+    # Log this ping cycle
+    responsive_count = db.execute(
+        "SELECT COUNT(*) FROM clients WHERE status = 'responsive'"
+    ).fetchone()[0]
+    db.execute(
+        "INSERT INTO ping_log (timestamp, total_clients, responsive) VALUES (?, ?, ?)",
+        (now, len(clients), responsive_count),
+    )
     db.commit()
     db.close()
 

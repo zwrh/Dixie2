@@ -1,15 +1,21 @@
 import datetime
 import hashlib
+import logging
 import os
 import sqlite3
 from functools import wraps
 
 import jwt
+from apscheduler.schedulers.background import BackgroundScheduler
 from dotenv import load_dotenv
 from flask import Flask, g, jsonify, request
 from flask_cors import CORS
 
+from ping import ping
+
 load_dotenv()
+
+logging.basicConfig(level=logging.DEBUG)
 
 app = Flask(__name__)
 JWT_SECRET = os.environ["JWT_SECRET"]
@@ -202,6 +208,82 @@ def get_clients():
     return jsonify([dict(row) for row in clients])
 
 
+@app.route("/api/clients", methods=["POST"])
+@auth_required
+def add_client():
+    data = request.get_json()
+    if not data:
+        return jsonify({"error": "Request body required"}), 400
+
+    required = ["identifier", "system_type", "ip_address", "target_port"]
+    missing = [f for f in required if not data.get(f)]
+    if missing:
+        return jsonify({"error": f"Missing fields: {', '.join(missing)}"}), 400
+
+    db = get_db()
+    try:
+        db.execute(
+            """INSERT INTO clients (identifier, system_type, ip_address, target_port)
+               VALUES (?, ?, ?, ?)""",
+            (data["identifier"], data["system_type"], data["ip_address"], int(data["target_port"])),
+        )
+        db.commit()
+    except sqlite3.IntegrityError:
+        return jsonify({"error": "Client with this identifier already exists"}), 409
+
+    return jsonify({"message": "Client added"}), 201
+
+
+@app.route("/api/clients/<int:client_id>", methods=["GET"])
+@auth_required
+def get_client(client_id):
+    db = get_db()
+    client = db.execute("SELECT * FROM clients WHERE id = ?", (client_id,)).fetchone()
+    if not client:
+        return jsonify({"error": "Client not found"}), 404
+    return jsonify(dict(client))
+
+
+@app.route("/api/clients/<int:client_id>", methods=["PUT"])
+@auth_required
+def update_client(client_id):
+    data = request.get_json()
+    if not data:
+        return jsonify({"error": "Request body required"}), 400
+
+    db = get_db()
+    client = db.execute("SELECT * FROM clients WHERE id = ?", (client_id,)).fetchone()
+    if not client:
+        return jsonify({"error": "Client not found"}), 404
+
+    allowed = ["identifier", "system_type", "ip_address", "target_port"]
+    updates = {k: data[k] for k in allowed if k in data}
+    if not updates:
+        return jsonify({"error": "No valid fields to update"}), 400
+
+    set_clause = ", ".join(f"{k} = ?" for k in updates)
+    values = list(updates.values()) + [client_id]
+
+    try:
+        db.execute(f"UPDATE clients SET {set_clause} WHERE id = ?", values)
+        db.commit()
+    except sqlite3.IntegrityError:
+        return jsonify({"error": "Client with this identifier already exists"}), 409
+
+    return jsonify({"message": "Client updated"})
+
+
+@app.route("/api/clients/<int:client_id>", methods=["DELETE"])
+@auth_required
+def delete_client(client_id):
+    db = get_db()
+    result = db.execute("DELETE FROM clients WHERE id = ?", (client_id,))
+    db.commit()
+    if result.rowcount == 0:
+        return jsonify({"error": "Client not found"}), 404
+    return jsonify({"message": "Client deleted"})
+
+
 @app.route("/api/stats", methods=["GET"])
 @auth_required
 def get_stats():
@@ -244,11 +326,82 @@ def update_settings():
         )
     db.commit()
 
+    if "ping_interval" in data:
+        scheduler.reschedule_job(
+            "ping_clients", trigger="interval", seconds=int(data["ping_interval"])
+        )
+
     return jsonify({"message": "Settings updated"})
+
+
+logger = logging.getLogger(__name__)
+
+
+def ping_clients():
+    """Ping all clients and update their status in the database."""
+    db = sqlite3.connect(DATABASE)
+    db.row_factory = sqlite3.Row
+    clients = db.execute("SELECT id, identifier, ip_address FROM clients").fetchall()
+
+    if not clients:
+        logger.debug("No clients to ping")
+        return
+
+    identifiers = [c["identifier"] for c in clients]
+    logger.debug("Running ping checks on: %s", ", ".join(identifiers))
+
+    now = datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%d %H:%M:%S")
+    for client in clients:
+        reachable = ping(client["ip_address"])
+        logger.debug(
+            "Ping %s (%s): %s",
+            client["identifier"],
+            client["ip_address"],
+            "responsive" if reachable else "non-responsive",
+        )
+        if reachable:
+            db.execute(
+                "UPDATE clients SET status = 'responsive', last_seen = ? WHERE id = ?",
+                (now, client["id"]),
+            )
+        else:
+            db.execute(
+                "UPDATE clients SET status = 'non-responsive' WHERE id = ?",
+                (client["id"],),
+            )
+    db.commit()
+    db.close()
+
+
+def get_ping_interval():
+    """Read the ping interval from settings."""
+    db = sqlite3.connect(DATABASE)
+    row = db.execute(
+        "SELECT value FROM settings WHERE key = 'ping_interval'"
+    ).fetchone()
+    db.close()
+    return int(row[0]) if row else 30
+
+
+scheduler = BackgroundScheduler()
+
+
+def start_scheduler():
+    interval = get_ping_interval()
+    scheduler.add_job(
+        ping_clients,
+        "interval",
+        seconds=interval,
+        id="ping_clients",
+        replace_existing=True,
+    )
+    if not scheduler.running:
+        scheduler.start()
 
 
 with app.app_context():
     init_db()
+    start_scheduler()
 
 
 if __name__ == "__main__":

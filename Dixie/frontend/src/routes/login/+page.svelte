@@ -120,7 +120,7 @@
 	.logo-icon {
 		width: 48px;
 		height: 48px;
-		background: linear-gradient(135deg, #a855f7, #7e22ce);
+		background: linear-gradient(135deg, #1aaf92, #0e7161);
 		border-radius: 14px;
 		display: flex;
 		align-items: center;
@@ -180,8 +180,8 @@
 
 	input:focus {
 		outline: none;
-		border-color: #a855f7;
-		box-shadow: 0 0 0 3px rgba(168, 85, 247, 0.15);
+		border-color: #1aaf92;
+		box-shadow: 0 0 0 3px rgba(26, 175, 146, 0.15);
 	}
 
 	.error-message {
@@ -196,7 +196,7 @@
 
 	.btn-login {
 		padding: 0.75rem 1.25rem;
-		background: linear-gradient(135deg, #a855f7, #7e22ce);
+		background: linear-gradient(135deg, #1aaf92, #0e7161);
 		color: white;
 		border: none;
 		border-radius: 8px;
@@ -234,6 +234,6 @@
 
 	.theme-btn:hover {
 		color: var(--color-text);
-		border-color: #a855f7;
+		border-color: #1aaf92;
 	}
 </style>

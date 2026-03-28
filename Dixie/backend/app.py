@@ -215,7 +215,9 @@ def change_password():
 @auth_required
 def get_clients():
     db = get_db()
-    clients = db.execute("SELECT * FROM clients ORDER BY date_added DESC").fetchall()
+    clients = db.execute(
+        "SELECT * FROM clients ORDER BY last_seen DESC NULLS LAST, identifier ASC"
+    ).fetchall()
     return jsonify([dict(row) for row in clients])
 
 
@@ -227,16 +229,41 @@ def add_client():
         return jsonify({"error": "Request body required"}), 400
 
     required = ["identifier", "system_type", "ip_address", "target_port"]
-    missing = [f for f in required if not data.get(f)]
+    missing = [f for f in required if not data.get(f) and data.get(f) != 0]
     if missing:
         return jsonify({"error": f"Missing fields: {', '.join(missing)}"}), 400
+
+    identifier = str(data["identifier"]).strip()
+    system_type = str(data["system_type"]).strip()
+    ip_address = str(data["ip_address"]).strip()
+
+    if not identifier or len(identifier) > 64:
+        return jsonify({"error": "Identifier must be 1-64 characters"}), 400
+
+    if system_type not in ("Windows", "Linux"):
+        return jsonify({"error": "System type must be Windows or Linux"}), 400
+
+    # Validate IP address format
+    import re
+    if not re.match(r"^\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}$", ip_address):
+        return jsonify({"error": "Invalid IP address format"}), 400
+    octets = ip_address.split(".")
+    if any(int(o) > 255 for o in octets):
+        return jsonify({"error": "Invalid IP address: octets must be 0-255"}), 400
+
+    try:
+        target_port = int(data["target_port"])
+    except (ValueError, TypeError):
+        return jsonify({"error": "Port must be a number"}), 400
+    if target_port < 1 or target_port > 65535:
+        return jsonify({"error": "Port must be between 1 and 65535"}), 400
 
     db = get_db()
     try:
         db.execute(
             """INSERT INTO clients (identifier, system_type, ip_address, target_port)
                VALUES (?, ?, ?, ?)""",
-            (data["identifier"], data["system_type"], data["ip_address"], int(data["target_port"])),
+            (identifier, system_type, ip_address, target_port),
         )
         db.commit()
     except sqlite3.IntegrityError:

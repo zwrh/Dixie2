@@ -123,7 +123,7 @@
 	.logo-icon {
 		width: 36px;
 		height: 36px;
-		background: linear-gradient(135deg, #a855f7, #7e22ce);
+		background: linear-gradient(135deg, #1aaf92, #0e7161);
 		border-radius: 10px;
 		display: flex;
 		align-items: center;

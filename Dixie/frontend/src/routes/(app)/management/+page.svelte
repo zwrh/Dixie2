@@ -46,11 +46,49 @@
 	let commandInput = $state('');
 	let activeCommand = $state('');
 	let commandStatus = $state<'idle' | 'sending' | 'active' | 'error'>('idle');
+	let commandError = $state('');
+
+	// Client selection popup
+	let showTargetPicker = $state(false);
+	let pendingCommand = $state('');
+	let selectedIds = $state<Set<number>>(new Set());
+	const selectedClients = $derived(clients.filter(c => selectedIds.has(c.id)));
+	const allSelected = $derived(clients.length > 0 && selectedIds.size === clients.length);
+
+	function toggleClient(id: number) {
+		if (selectedIds.has(id)) {
+			selectedIds.delete(id);
+		} else {
+			selectedIds.add(id);
+		}
+		selectedIds = new Set(selectedIds);
+	}
+
+	function toggleAll() {
+		if (allSelected) {
+			selectedIds = new Set();
+		} else {
+			selectedIds = new Set(clients.map(c => c.id));
+		}
+	}
+
+	function promptTargets() {
+		const cmd = commandInput.trim();
+		if (!cmd) return;
+		pendingCommand = cmd;
+		selectedIds = new Set();
+		showTargetPicker = true;
+	}
+
+	function handleKeydown(e: KeyboardEvent) {
+		if (e.key === 'Enter') promptTargets();
+	}
 
 	type HistoryEntry = {
 		command: string;
 		timestamp: string;
 		recipients: string[];
+		results: { identifier: string; status: string }[];
 	};
 
 	let commandHistory = $state<HistoryEntry[]>([]);
@@ -59,36 +97,40 @@
 
 	const visibleHistory = $derived(historyExpanded ? commandHistory : commandHistory.slice(0, 3));
 
-	async function sendCommand() {
-		const cmd = commandInput.trim();
-		if (!cmd) return;
+	async function confirmSend() {
+		if (selectedClients.length === 0) return;
 
+		showTargetPicker = false;
 		commandStatus = 'sending';
+		commandError = '';
 		try {
-			const res = await authFetch('/api/settings', {
-				method: 'PUT',
+			const res = await authFetch('/api/clients/command', {
+				method: 'POST',
 				headers: { 'Content-Type': 'application/json' },
-				body: JSON.stringify({ pending_command: cmd })
+				body: JSON.stringify({
+					identifiers: selectedClients.map(c => c.identifier),
+					command: pendingCommand
+				})
 			});
+			const data = await res.json();
 			if (res.ok) {
-				activeCommand = cmd;
+				activeCommand = pendingCommand;
 				commandInput = '';
 				commandStatus = 'active';
 				commandHistory.unshift({
-					command: cmd,
+					command: pendingCommand,
 					timestamp: new Date().toLocaleString(),
-					recipients: clients.filter(c => c.status === 'responsive').map(c => c.identifier)
+					recipients: selectedClients.map(c => c.identifier),
+					results: data.results || []
 				});
 			} else {
+				commandError = data.error || 'Failed to send command.';
 				commandStatus = 'error';
 			}
 		} catch {
+			commandError = 'Unable to connect to server.';
 			commandStatus = 'error';
 		}
-	}
-
-	function handleKeydown(e: KeyboardEvent) {
-		if (e.key === 'Enter') sendCommand();
 	}
 
 	// --- Add Client ---
@@ -122,6 +164,23 @@
 		}
 	}
 
+	let deleteTarget = $state<Client | null>(null);
+
+	function confirmDelete(client: Client) {
+		deleteTarget = client;
+	}
+
+	async function executeDelete() {
+		if (!deleteTarget) return;
+		try {
+			const res = await authFetch(`/api/clients/${deleteTarget.id}`, { method: 'DELETE' });
+			if (res.ok) {
+				loadClients();
+			}
+		} catch { /* silent */ }
+		deleteTarget = null;
+	}
+
 	function openDetails(entry: HistoryEntry) {
 		selectedEntry = entry;
 	}
@@ -150,7 +209,7 @@
 			/>
 			<button
 				class="command-btn"
-				onclick={sendCommand}
+				onclick={promptTargets}
 				disabled={!commandInput.trim() || commandStatus === 'sending'}
 			>
 				{commandStatus === 'sending' ? 'Sending...' : 'Enter'}
@@ -163,8 +222,8 @@
 				<code class="active-value">{activeCommand}</code>
 			</div>
 		{/if}
-		{#if commandStatus === 'error'}
-			<div class="command-error">Failed to send command. Check server connection.</div>
+		{#if commandError}
+			<div class="command-error">{commandError}</div>
 		{/if}
 	</div>
 
@@ -210,10 +269,13 @@
 						<span class="detail-label">Recipients ({selectedEntry.recipients.length})</span>
 					</div>
 					<div class="recipients-list">
-						{#each selectedEntry.recipients as name}
+						{#each selectedEntry.results.length > 0 ? selectedEntry.results : selectedEntry.recipients.map(r => ({ identifier: r, status: 'sent' })) as item}
 							<div class="recipient">
-								<span class="recipient-dot"></span>
-								{name}
+								<span class="recipient-dot" style:background-color={item.status === 'sent' ? '#22c55e' : '#ef4444'}></span>
+								{item.identifier}
+								{#if item.status === 'failed'}
+									<span class="recipient-failed">failed</span>
+								{/if}
 							</div>
 						{/each}
 					</div>
@@ -242,6 +304,7 @@
 							<th>Port</th>
 							<th>Status</th>
 							<th>Last Seen</th>
+							<th></th>
 						</tr>
 					</thead>
 					<tbody>
@@ -257,6 +320,9 @@
 									</span>
 								</td>
 								<td class="muted-cell">{client.last_seen ?? '—'}</td>
+								<td class="delete-cell">
+									<button class="delete-btn" onclick={() => confirmDelete(client)} title="Remove client">&times;</button>
+								</td>
 							</tr>
 						{/each}
 					</tbody>
@@ -265,6 +331,46 @@
 		{/if}
 	</div>
 </div>
+
+{#if showTargetPicker}
+	<div class="modal-backdrop" onclick={() => showTargetPicker = false} role="presentation">
+		<div class="modal" onclick={(e) => e.stopPropagation()} role="dialog">
+			<div class="modal-header">
+				<h3>Select Targets</h3>
+				<button class="modal-close" onclick={() => showTargetPicker = false}>&times;</button>
+			</div>
+			<div class="modal-body">
+				<p class="picker-cmd">Command: <code>{pendingCommand}</code></p>
+				<div class="picker-actions">
+					<button class="select-all-btn" onclick={toggleAll}>
+						{allSelected ? 'Deselect All' : 'Select All'}
+					</button>
+					<span class="target-count">{selectedIds.size} selected</span>
+				</div>
+				<div class="picker-list">
+					{#each clients as client}
+						<button
+							class="picker-item"
+							class:selected={selectedIds.has(client.id)}
+							onclick={() => toggleClient(client.id)}
+						>
+							<span class="picker-check">{selectedIds.has(client.id) ? '✓' : ''}</span>
+							<span class="chip-status" style:background-color={statusColor(client.status)}></span>
+							<span class="picker-name">{client.identifier}</span>
+							<span class="picker-ip">{client.ip_address}</span>
+						</button>
+					{/each}
+				</div>
+				<div class="form-actions">
+					<button type="button" class="btn-cancel" onclick={() => showTargetPicker = false}>Cancel</button>
+					<button type="button" class="btn-submit" onclick={confirmSend} disabled={selectedIds.size === 0}>
+						Send to {selectedIds.size} client{selectedIds.size !== 1 ? 's' : ''}
+					</button>
+				</div>
+			</div>
+		</div>
+	</div>
+{/if}
 
 {#if showAddClient}
 	<div class="modal-backdrop" onclick={() => showAddClient = false} role="presentation">
@@ -281,7 +387,11 @@
 					</div>
 					<div class="form-field">
 						<label for="ac-sys">System</label>
-						<input id="ac-sys" type="text" bind:value={newClient.system_type} placeholder="e.g. Linux" required />
+						<select id="ac-sys" class="form-select" bind:value={newClient.system_type} required>
+							<option value="" disabled>Select OS</option>
+							<option value="Windows">Windows</option>
+							<option value="Linux">Linux</option>
+						</select>
 					</div>
 					<div class="form-field">
 						<label for="ac-ip">IP Address</label>
@@ -301,6 +411,30 @@
 						</button>
 					</div>
 				</form>
+			</div>
+		</div>
+	</div>
+{/if}
+
+{#if deleteTarget}
+	<div class="modal-backdrop" onclick={() => deleteTarget = null} role="presentation">
+		<div class="modal delete-modal" onclick={(e) => e.stopPropagation()} role="dialog">
+			<div class="modal-header">
+				<h3>Confirm Deletion</h3>
+				<button class="modal-close" onclick={() => deleteTarget = null}>&times;</button>
+			</div>
+			<div class="modal-body">
+				<p class="delete-message">
+					Are you sure you want to remove <strong>{deleteTarget.identifier}</strong>?
+				</p>
+				<p class="delete-details">
+					{deleteTarget.system_type} &middot; {deleteTarget.ip_address}:{deleteTarget.target_port}
+				</p>
+				<p class="delete-warning">This action cannot be undone.</p>
+				<div class="form-actions">
+					<button type="button" class="btn-cancel" onclick={() => deleteTarget = null}>Cancel</button>
+					<button type="button" class="btn-delete" onclick={executeDelete}>Delete Client</button>
+				</div>
 			</div>
 		</div>
 	</div>
@@ -345,6 +479,105 @@
 		margin: 0 0 1rem;
 	}
 
+	.picker-cmd {
+		font-size: 0.85rem;
+		color: var(--color-text-muted);
+		margin: 0 0 0.75rem;
+	}
+
+	.picker-cmd code {
+		color: var(--color-text);
+		font-family: 'SF Mono', 'Fira Code', monospace;
+	}
+
+	.picker-actions {
+		display: flex;
+		align-items: center;
+		justify-content: space-between;
+		margin-bottom: 0.5rem;
+	}
+
+	.select-all-btn {
+		background: none;
+		border: none;
+		color: #1aaf92;
+		font-size: 0.8rem;
+		font-weight: 600;
+		cursor: pointer;
+		padding: 0;
+	}
+
+	.select-all-btn:hover {
+		text-decoration: underline;
+	}
+
+	.target-count {
+		font-size: 0.75rem;
+		color: var(--color-text-muted);
+	}
+
+	.picker-list {
+		display: flex;
+		flex-direction: column;
+		gap: 0.25rem;
+		max-height: 260px;
+		overflow-y: auto;
+		margin-bottom: 1rem;
+	}
+
+	.picker-item {
+		display: flex;
+		align-items: center;
+		gap: 0.5rem;
+		padding: 0.5rem 0.6rem;
+		border: 1px solid var(--color-border);
+		border-radius: 6px;
+		background: var(--color-surface);
+		cursor: pointer;
+		transition: all 0.15s ease;
+		text-align: left;
+		width: 100%;
+		color: inherit;
+		font: inherit;
+		font-size: 0.8rem;
+	}
+
+	.picker-item:hover {
+		border-color: #1aaf92;
+	}
+
+	.picker-item.selected {
+		border-color: #1aaf92;
+		background: rgba(26, 175, 146, 0.08);
+	}
+
+	.picker-check {
+		width: 1rem;
+		text-align: center;
+		color: #1aaf92;
+		font-weight: 700;
+		flex-shrink: 0;
+	}
+
+	.chip-status {
+		width: 6px;
+		height: 6px;
+		border-radius: 50%;
+		flex-shrink: 0;
+	}
+
+	.picker-name {
+		font-weight: 600;
+		color: var(--color-text);
+		flex: 1;
+	}
+
+	.picker-ip {
+		font-family: 'SF Mono', 'Fira Code', monospace;
+		font-size: 0.75rem;
+		color: var(--color-text-muted);
+	}
+
 	.command-row {
 		display: flex;
 		gap: 0;
@@ -370,8 +603,8 @@
 
 	.command-input:focus {
 		outline: none;
-		border-color: #a855f7;
-		box-shadow: 0 0 0 3px rgba(168, 85, 247, 0.15);
+		border-color: #1aaf92;
+		box-shadow: 0 0 0 3px rgba(26, 175, 146, 0.15);
 	}
 
 	.command-input:disabled {
@@ -380,7 +613,7 @@
 
 	.command-btn {
 		padding: 0.7rem 1.5rem;
-		background: linear-gradient(135deg, #a855f7, #7e22ce);
+		background: linear-gradient(135deg, #1aaf92, #0e7161);
 		color: white;
 		border: none;
 		border-radius: 0 8px 8px 0;
@@ -471,7 +704,7 @@
 	}
 
 	.history-item:hover {
-		border-color: #a855f7;
+		border-color: #1aaf92;
 		background-color: var(--color-surface-hover);
 	}
 
@@ -491,7 +724,7 @@
 	}
 
 	.history-recipients {
-		color: #a855f7;
+		color: #1aaf92;
 		font-weight: 500;
 	}
 
@@ -501,7 +734,7 @@
 		padding: 0;
 		background: none;
 		border: none;
-		color: #a855f7;
+		color: #1aaf92;
 		font-size: 0.8rem;
 		font-weight: 500;
 		cursor: pointer;
@@ -612,8 +845,13 @@
 		width: 6px;
 		height: 6px;
 		border-radius: 50%;
-		background-color: #22c55e;
 		flex-shrink: 0;
+	}
+
+	.recipient-failed {
+		font-size: 0.7rem;
+		color: #ef4444;
+		margin-left: auto;
 	}
 
 	.section-header {
@@ -629,7 +867,7 @@
 
 	.add-client-btn {
 		padding: 0.4rem 0.85rem;
-		background: linear-gradient(135deg, #a855f7, #7e22ce);
+		background: linear-gradient(135deg, #1aaf92, #0e7161);
 		color: white;
 		border: none;
 		border-radius: 6px;
@@ -669,8 +907,8 @@
 
 	.form-field input:focus {
 		outline: none;
-		border-color: #a855f7;
-		box-shadow: 0 0 0 3px rgba(168, 85, 247, 0.15);
+		border-color: #1aaf92;
+		box-shadow: 0 0 0 3px rgba(26, 175, 146, 0.15);
 	}
 
 	.form-field input::placeholder {
@@ -711,7 +949,7 @@
 
 	.btn-submit {
 		padding: 0.5rem 1rem;
-		background: linear-gradient(135deg, #a855f7, #7e22ce);
+		background: linear-gradient(135deg, #1aaf92, #0e7161);
 		color: white;
 		border: none;
 		border-radius: 6px;
@@ -783,6 +1021,82 @@
 		font-family: 'SF Mono', 'Fira Code', monospace;
 		font-size: 0.8rem;
 		color: var(--color-text-muted);
+	}
+
+	.delete-cell {
+		width: 2rem;
+		text-align: center;
+	}
+
+	.delete-btn {
+		background: none;
+		border: none;
+		color: #ef4444;
+		font-size: 1.2rem;
+		font-weight: 700;
+		cursor: pointer;
+		padding: 0.1rem 0.4rem;
+		border-radius: 4px;
+		line-height: 1;
+		transition: background-color 0.15s ease;
+	}
+
+	.delete-btn:hover {
+		background-color: rgba(239, 68, 68, 0.1);
+	}
+
+	.delete-modal {
+		max-width: 400px;
+	}
+
+	.delete-message {
+		font-size: 0.9rem;
+		color: var(--color-text);
+		margin: 0 0 0.5rem;
+	}
+
+	.delete-details {
+		font-size: 0.8rem;
+		color: var(--color-text-muted);
+		margin: 0 0 0.75rem;
+		font-family: 'SF Mono', 'Fira Code', monospace;
+	}
+
+	.delete-warning {
+		font-size: 0.8rem;
+		color: #ef4444;
+		margin: 0 0 1.25rem;
+	}
+
+	.btn-delete {
+		padding: 0.5rem 1rem;
+		background-color: #ef4444;
+		color: white;
+		border: none;
+		border-radius: 6px;
+		font-size: 0.8rem;
+		font-weight: 600;
+		cursor: pointer;
+	}
+
+	.btn-delete:hover {
+		background-color: #dc2626;
+	}
+
+	.form-select {
+		padding: 0.6rem 0.75rem;
+		border: 1px solid var(--color-border);
+		border-radius: 6px;
+		background-color: var(--color-surface);
+		color: var(--color-text);
+		font-size: 0.85rem;
+		cursor: pointer;
+	}
+
+	.form-select:focus {
+		outline: none;
+		border-color: #1aaf92;
+		box-shadow: 0 0 0 3px rgba(26, 175, 146, 0.15);
 	}
 
 	.muted-cell {

@@ -130,14 +130,14 @@
 
 	.intro-card {
 		margin-bottom: 1.5rem;
-		border-left: 4px solid #7e22ce;
+		border-left: 4px solid #0e7161;
 	}
 
 	.intro-badge {
 		display: inline-block;
 		padding: 0.2rem 0.6rem;
-		background: rgba(168, 85, 247, 0.1);
-		color: #a855f7;
+		background: rgba(26, 175, 146, 0.1);
+		color: #1aaf92;
 		border-radius: 20px;
 		font-size: 0.75rem;
 		font-weight: 600;
@@ -172,7 +172,7 @@
 	.section-number {
 		font-size: 1.5rem;
 		font-weight: 800;
-		color: #7e22ce;
+		color: #0e7161;
 		opacity: 0.3;
 		line-height: 1;
 		padding-top: 0.15rem;
@@ -213,7 +213,7 @@
 	}
 
 	.step-list li::marker {
-		color: #a855f7;
+		color: #1aaf92;
 		font-weight: 600;
 	}
 </style>

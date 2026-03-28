@@ -257,7 +257,7 @@
 
 	.config-select:focus {
 		outline: none;
-		border-color: #a855f7;
+		border-color: #1aaf92;
 	}
 
 	.config-saved {
@@ -315,8 +315,8 @@
 
 	input:focus {
 		outline: none;
-		border-color: #a855f7;
-		box-shadow: 0 0 0 3px rgba(168, 85, 247, 0.15);
+		border-color: #1aaf92;
+		box-shadow: 0 0 0 3px rgba(26, 175, 146, 0.15);
 	}
 
 	.message {
@@ -340,7 +340,7 @@
 
 	.btn-primary {
 		padding: 0.625rem 1.25rem;
-		background: linear-gradient(135deg, #a855f7, #7e22ce);
+		background: linear-gradient(135deg, #1aaf92, #0e7161);
 		color: white;
 		border: none;
 		border-radius: 8px;

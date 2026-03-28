@@ -197,12 +197,12 @@
 						<!-- Area fill -->
 						<path d={areaPath} fill="url(#contactGrad)" />
 						<!-- Line -->
-						<path d={linePath} fill="none" stroke="#a855f7" stroke-width="2" stroke-linejoin="round" />
+						<path d={linePath} fill="none" stroke="#1aaf92" stroke-width="2" stroke-linejoin="round" />
 						<!-- Data dots -->
 						{#each contactData as d, i}
 							{@const x = padL + (i / (contactData.length - 1)) * plotW}
 							{@const y = padT + plotH - (d.contacts / yMax) * plotH}
-							<circle cx={x} cy={y} r="2.5" fill="#a855f7" />
+							<circle cx={x} cy={y} r="2.5" fill="#1aaf92" />
 						{/each}
 						<!-- X labels -->
 						{#each xLabels() as lbl}
@@ -211,8 +211,8 @@
 						<!-- Gradient def -->
 						<defs>
 							<linearGradient id="contactGrad" x1="0" y1="0" x2="0" y2="1">
-								<stop offset="0%" stop-color="#a855f7" stop-opacity="0.25" />
-								<stop offset="100%" stop-color="#a855f7" stop-opacity="0.02" />
+								<stop offset="0%" stop-color="#1aaf92" stop-opacity="0.25" />
+								<stop offset="100%" stop-color="#1aaf92" stop-opacity="0.02" />
 							</linearGradient>
 						</defs>
 					</svg>
@@ -332,7 +332,7 @@
 
 	.range-select:focus {
 		outline: none;
-		border-color: #a855f7;
+		border-color: #1aaf92;
 	}
 
 	.line-chart-container {

@@ -1,6 +1,7 @@
 <script lang="ts">
 	import { goto } from '$app/navigation';
 	import { theme } from '$lib/stores/theme.svelte';
+	import { setToken } from '$lib/auth';
 
 	let username = $state('');
 	let password = $state('');
@@ -22,6 +23,7 @@
 			const data = await res.json();
 
 			if (res.ok) {
+				setToken(data.token);
 				goto('/dashboard');
 			} else {
 				error = data.error || 'Login failed.';

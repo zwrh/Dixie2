@@ -12,6 +12,7 @@ from flask import Flask, g, jsonify, request
 from flask_cors import CORS
 
 from ping import ping
+from send_cmd import send_command
 
 load_dotenv()
 
@@ -294,6 +295,47 @@ def delete_client(client_id):
     return jsonify({"message": "Client deleted"})
 
 
+@app.route("/api/clients/command", methods=["POST"])
+@auth_required
+def send_client_command():
+    data = request.get_json()
+    if not data:
+        return jsonify({"error": "Request body required"}), 400
+
+    identifiers = data.get("identifiers")
+    command = data.get("command", "").strip()
+
+    if not identifiers or not isinstance(identifiers, list):
+        return jsonify({"error": "identifiers must be a non-empty list"}), 400
+    if not command:
+        return jsonify({"error": "command is required"}), 400
+
+    # Deduplicate identifiers
+    identifiers = list(dict.fromkeys(identifiers))
+
+    db = get_db()
+    placeholders = ",".join("?" for _ in identifiers)
+    clients = db.execute(
+        f"SELECT identifier, ip_address, target_port FROM clients WHERE identifier IN ({placeholders})",
+        identifiers,
+    ).fetchall()
+
+    found = {c["identifier"] for c in clients}
+    not_found = [i for i in identifiers if i not in found]
+    if not_found:
+        return jsonify({"error": f"Unknown identifiers: {', '.join(not_found)}"}), 404
+
+    results = []
+    for client in clients:
+        try:
+            send_command(client["ip_address"], client["target_port"], command)
+            results.append({"identifier": client["identifier"], "status": "sent"})
+        except OSError as e:
+            results.append({"identifier": client["identifier"], "status": "failed", "error": str(e)})
+
+    return jsonify({"results": results})
+
+
 @app.route("/api/stats", methods=["GET"])
 @auth_required
 def get_stats():
@@ -318,23 +360,19 @@ def get_stats():
 def contact_rate():
     range_param = request.args.get("range", "month")
 
-    now_expr = "datetime('now')"
-    if range_param == "day":
-        since = f"{now_expr}, '-1 day'"
-    elif range_param == "week":
-        since = f"{now_expr}, '-7 days'"
-    elif range_param == "month":
-        since = f"{now_expr}, '-30 days'"
-    elif range_param == "year":
-        since = f"{now_expr}, '-365 days'"
-    else:  # all
-        since = None
+    modifiers = {
+        "day": "-1 day",
+        "week": "-7 days",
+        "month": "-30 days",
+        "year": "-365 days",
+    }
 
     db = get_db()
-    if since:
+    if range_param in modifiers:
         rows = db.execute(
-            f"SELECT timestamp, total_clients, responsive FROM ping_log "
-            f"WHERE timestamp >= {since} ORDER BY timestamp ASC"
+            "SELECT timestamp, total_clients, responsive FROM ping_log "
+            "WHERE timestamp >= datetime('now', ?) ORDER BY timestamp ASC",
+            (modifiers[range_param],),
         ).fetchall()
     else:
         rows = db.execute(

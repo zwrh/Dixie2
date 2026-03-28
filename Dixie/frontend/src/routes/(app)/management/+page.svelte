@@ -11,12 +11,12 @@
 	};
 
 	const clients: Client[] = [
-		{ name: 'Sarah Chen', company: 'TechVault Inc.', email: 'sarah@techvault.com', status: 'Active', revenue: 12400 },
-		{ name: 'Marcus Johnson', company: 'DataStream LLC', email: 'marcus@datastream.io', status: 'Active', revenue: 9800 },
-		{ name: 'Priya Patel', company: 'CloudNine Solutions', email: 'priya@cloudnine.dev', status: 'Pending', revenue: 6200 },
-		{ name: 'James Wilson', company: 'Apex Digital', email: 'james@apexdigital.com', status: 'Active', revenue: 15600 },
-		{ name: 'Elena Rodriguez', company: 'BrightPath Co.', email: 'elena@brightpath.co', status: 'Inactive', revenue: 3100 },
-		{ name: 'David Kim', company: 'NovaTech', email: 'david@novatech.io', status: 'Active', revenue: 11200 },
+		{ name: 'Ben Dover', company: 'TechVault Inc.', email: 'sarah@techvault.com', status: 'Active', revenue: 12400 },
+		{ name: 'JorJor Well', company: 'DataStream LLC', email: 'marcus@datastream.io', status: 'Active', revenue: 9800 },
+		{ name: 'Nick Gurh', company: 'CloudNine Solutions', email: 'priya@cloudnine.dev', status: 'Pending', revenue: 6200 },
+		{ name: 'Dixie Normus', company: 'Apex Digital', email: 'james@apexdigital.com', status: 'Active', revenue: 15600 },
+		{ name: 'Moe Lester', company: 'BrightPath Co.', email: 'elena@brightpath.co', status: 'Inactive', revenue: 3100 },
+		{ name: 'Kanye', company: 'NovaTech', email: 'david@novatech.io', status: 'Active', revenue: 11200 },
 		{ name: 'Lisa Thompson', company: 'PeakView Labs', email: 'lisa@peakview.com', status: 'Pending', revenue: 7800 },
 		{ name: 'Omar Hassan', company: 'SynergyWorks', email: 'omar@synergyworks.net', status: 'Active', revenue: 8900 }
 	];
@@ -36,7 +36,7 @@
 
 <div class="page">
 	<div class="page-header">
-		<h1>Inventory</h1>
+		<h1>Management</h1>
 		<p class="subtitle">Client overview and revenue breakdown</p>
 	</div>
 

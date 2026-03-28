@@ -1,25 +1,28 @@
 <script lang="ts">
-	import { Arc, Chart, Pie, Svg } from 'layerchart';
-
-	const pieData = [
-		{ label: 'Active Clients', value: 42, color: '#7e22ce' },
-		{ label: 'Pending', value: 18, color: '#a855f7' },
-		{ label: 'Inactive', value: 12, color: '#d8b4fe' },
-		{ label: 'New Leads', value: 28, color: '#c084fc' }
+	const statusData = [
+		{ label: 'Active', value: 74, color: '#22c55e' },
+		{ label: 'Unresponsive', value: 26, color: '#ef4444' }
 	];
 
+	const totalOps = statusData.reduce((sum, d) => sum + d.value, 0);
+	const activePct = Math.round((statusData[0].value / totalOps) * 100);
+
+	const radius = 70;
+	const circumference = 2 * Math.PI * radius;
+	const activeLen = (statusData[0].value / totalOps) * circumference;
+
 	const stats = [
-		{ title: 'Total Revenue', value: '$48,250', change: '+12.5%' },
-		{ title: 'Active Clients', value: '42', change: '+3.2%' },
-		{ title: 'Pending Orders', value: '18', change: '-2.1%' },
-		{ title: 'Avg. Response', value: '2.4h', change: '-15.3%' }
+		{ title: 'Total Active', value: '74' },
+		{ title: 'Total Inactive', value: '26' },
+		{ title: 'Total Inventory', value: '100' },
+		{ title: 'Total Commands Ran', value: '1,847' }
 	];
 </script>
 
 <div class="page">
 	<div class="page-header">
 		<h1>Dashboard</h1>
-		<p class="subtitle">Overview of your workspace</p>
+		<p class="subtitle">Summary of everything</p>
 	</div>
 
 	<div class="stats-grid">
@@ -27,31 +30,27 @@
 			<div class="card stat-card">
 				<span class="stat-title">{stat.title}</span>
 				<span class="stat-value">{stat.value}</span>
-				<span class="stat-change" class:positive={stat.change.startsWith('+')} class:negative={stat.change.startsWith('-')}>
-					{stat.change}
-				</span>
 			</div>
 		{/each}
 	</div>
 
 	<div class="charts-grid">
 		<div class="card chart-card">
-			<h2>Client Distribution</h2>
-			<div class="pie-container">
-				<Chart data={pieData} tooltip={{ mode: 'manual' }}>
-					<Svg>
-						<Pie value="value" innerRadius={50} padAngle={0.03} cornerRadius={4}>
-							{#snippet children({ arcs })}
-								{#each arcs as arc}
-									<Arc data={arc} fill={arc.data.color} />
-								{/each}
-							{/snippet}
-						</Pie>
-					</Svg>
-				</Chart>
+			<h2>System Status</h2>
+			<div class="donut-container">
+				<svg viewBox="0 0 200 200" class="donut-svg">
+					<circle cx="100" cy="100" r={radius} fill="none" stroke="#ef4444" stroke-width="22" />
+					<circle cx="100" cy="100" r={radius} fill="none" stroke="#22c55e" stroke-width="22"
+						stroke-dasharray="{activeLen} {circumference - activeLen}"
+						transform="rotate(-90 100 100)" />
+				</svg>
+				<div class="donut-center">
+					<span class="donut-pct">{activePct}%</span>
+					<span class="donut-label">Active</span>
+				</div>
 			</div>
 			<div class="legend">
-				{#each pieData as item}
+				{#each statusData as item}
 					<div class="legend-item">
 						<span class="legend-dot" style:background-color={item.color}></span>
 						<span class="legend-label">{item.label}</span>
@@ -142,20 +141,7 @@
 		color: var(--color-text);
 	}
 
-	.stat-change {
-		font-size: 0.8rem;
-		font-weight: 600;
-	}
-
-	.stat-change.positive {
-		color: #22c55e;
-	}
-
-	.stat-change.negative {
-		color: #ef4444;
-	}
-
-	.charts-grid {
+.charts-grid {
 		display: grid;
 		grid-template-columns: repeat(2, 1fr);
 		gap: 1rem;
@@ -168,9 +154,44 @@
 		margin: 0 0 1rem;
 	}
 
-	.pie-container {
+	.donut-container {
 		height: 200px;
 		margin-bottom: 1rem;
+		position: relative;
+		display: flex;
+		align-items: center;
+		justify-content: center;
+	}
+
+	.donut-svg {
+		width: 180px;
+		height: 180px;
+	}
+
+	.donut-center {
+		position: absolute;
+		top: 50%;
+		left: 50%;
+		transform: translate(-50%, -50%);
+		display: flex;
+		flex-direction: column;
+		align-items: center;
+		pointer-events: none;
+	}
+
+	.donut-pct {
+		font-size: 1.5rem;
+		font-weight: 700;
+		color: var(--color-text);
+		line-height: 1;
+	}
+
+	.donut-label {
+		font-size: 0.7rem;
+		color: var(--color-text-muted);
+		text-transform: uppercase;
+		letter-spacing: 0.05em;
+		margin-top: 0.2rem;
 	}
 
 	.legend {

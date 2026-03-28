@@ -1,0 +1,11 @@
+node_modules/
+.svelte-kit/
+build/
+dist/
+__pycache__/
+*.pyc
+Dixie/backend/venv/
+Dixie/backend/dixie.db
+Dixie/.env
+Dixie/.DS_Store
+.claude/*

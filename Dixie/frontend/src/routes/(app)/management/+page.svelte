@@ -54,8 +54,9 @@
 	let showTargetPicker = $state(false);
 	let pendingCommand = $state('');
 	let selectedIds = $state<Set<number>>(new Set());
+	const onlineClients = $derived(clients.filter(c => c.status === 'responsive'));
 	const selectedClients = $derived(clients.filter(c => selectedIds.has(c.id)));
-	const allSelected = $derived(clients.length > 0 && selectedIds.size === clients.length);
+	const allSelected = $derived(onlineClients.length > 0 && selectedIds.size === onlineClients.length);
 
 	function toggleClient(id: number) {
 		if (selectedIds.has(id)) {
@@ -70,7 +71,7 @@
 		if (allSelected) {
 			selectedIds = new Set();
 		} else {
-			selectedIds = new Set(clients.map(c => c.id));
+			selectedIds = new Set(onlineClients.map(c => c.id));
 		}
 	}
 
@@ -144,6 +145,48 @@
 			addError = 'Unable to connect to server.';
 		} finally {
 			addLoading = false;
+		}
+	}
+
+	// --- Edit Client ---
+	let editTarget = $state<Client | null>(null);
+	let editForm = $state({ identifier: '', system_type: '', ip_address: '', target_port: '' });
+	let editError = $state('');
+	let editLoading = $state(false);
+
+	function openEdit(client: Client) {
+		editTarget = client;
+		editForm = {
+			identifier: client.identifier,
+			system_type: client.system_type,
+			ip_address: client.ip_address,
+			target_port: String(client.target_port)
+		};
+		editError = '';
+	}
+
+	async function saveEdit(e: Event) {
+		e.preventDefault();
+		if (!editTarget) return;
+		editError = '';
+		editLoading = true;
+		try {
+			const res = await authFetch(`/api/clients/${editTarget.id}`, {
+				method: 'PUT',
+				headers: { 'Content-Type': 'application/json' },
+				body: JSON.stringify(editForm)
+			});
+			const data = await res.json();
+			if (res.ok) {
+				editTarget = null;
+				loadClients();
+			} else {
+				editError = data.error || 'Failed to update client.';
+			}
+		} catch {
+			editError = 'Unable to connect to server.';
+		} finally {
+			editLoading = false;
 		}
 	}
 
@@ -239,8 +282,20 @@
 									</span>
 								</td>
 								<td class="muted-cell">{client.last_seen ?? '—'}</td>
-								<td class="delete-cell">
-									<button class="delete-btn" onclick={() => confirmDelete(client)} title="Remove client">&times;</button>
+								<td class="actions-cell">
+									<button class="action-btn terminal-btn" title="Terminal">
+										<svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+											<polyline points="4 17 10 11 4 5" /><line x1="12" y1="19" x2="20" y2="19" />
+										</svg>
+									</button>
+									<button class="action-btn edit-btn" onclick={() => openEdit(client)} title="Edit client">
+										<svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+											<path d="M11 4H4a2 2 0 00-2 2v14a2 2 0 002 2h14a2 2 0 002-2v-7" /><path d="M18.5 2.5a2.121 2.121 0 013 3L12 15l-4 1 1-4 9.5-9.5z" />
+										</svg>
+									</button>
+									<button class="action-btn delete-btn" onclick={() => confirmDelete(client)} title="Remove client">
+										&times;
+									</button>
 								</td>
 							</tr>
 						{/each}
@@ -267,7 +322,7 @@
 					<span class="target-count">{selectedIds.size} selected</span>
 				</div>
 				<div class="picker-list">
-					{#each clients as client}
+					{#each onlineClients as client}
 						<button
 							class="picker-item"
 							class:selected={selectedIds.has(client.id)}
@@ -327,6 +382,49 @@
 						<button type="button" class="btn-cancel" onclick={() => showAddClient = false}>Cancel</button>
 						<button type="submit" class="btn-submit" disabled={addLoading}>
 							{addLoading ? 'Adding...' : 'Add Client'}
+						</button>
+					</div>
+				</form>
+			</div>
+		</div>
+	</div>
+{/if}
+
+{#if editTarget}
+	<div class="modal-backdrop" onclick={() => editTarget = null} role="presentation">
+		<div class="modal" onclick={(e) => e.stopPropagation()} role="dialog">
+			<div class="modal-header">
+				<h3>Edit Client</h3>
+				<button class="modal-close" onclick={() => editTarget = null}>&times;</button>
+			</div>
+			<div class="modal-body">
+				<form onsubmit={saveEdit}>
+					<div class="form-field">
+						<label for="ed-id">Identifier</label>
+						<input id="ed-id" type="text" bind:value={editForm.identifier} required />
+					</div>
+					<div class="form-field">
+						<label for="ed-sys">System</label>
+						<select id="ed-sys" class="form-select" bind:value={editForm.system_type} required>
+							<option value="Windows">Windows</option>
+							<option value="Linux">Linux</option>
+						</select>
+					</div>
+					<div class="form-field">
+						<label for="ed-ip">IP Address</label>
+						<input id="ed-ip" type="text" bind:value={editForm.ip_address} required />
+					</div>
+					<div class="form-field">
+						<label for="ed-port">Port</label>
+						<input id="ed-port" type="text" inputmode="numeric" pattern="[0-9]*" bind:value={editForm.target_port} required />
+					</div>
+					{#if editError}
+						<div class="form-error">{editError}</div>
+					{/if}
+					<div class="form-actions">
+						<button type="button" class="btn-cancel" onclick={() => editTarget = null}>Cancel</button>
+						<button type="submit" class="btn-submit" disabled={editLoading}>
+							{editLoading ? 'Saving...' : 'Save Changes'}
 						</button>
 					</div>
 				</form>
@@ -820,22 +918,43 @@
 		color: var(--color-text-muted);
 	}
 
-	.delete-cell {
-		width: 2rem;
-		text-align: center;
+	.actions-cell {
+		white-space: nowrap;
+		text-align: right;
+	}
+
+	.action-btn {
+		background: none;
+		border: none;
+		cursor: pointer;
+		padding: 0.25rem 0.35rem;
+		border-radius: 4px;
+		line-height: 1;
+		transition: background-color 0.15s ease, color 0.15s ease;
+		vertical-align: middle;
+	}
+
+	.terminal-btn {
+		color: #1aaf92;
+	}
+
+	.terminal-btn:hover {
+		background-color: rgba(26, 175, 146, 0.1);
+	}
+
+	.edit-btn {
+		color: var(--color-text-muted);
+	}
+
+	.edit-btn:hover {
+		color: #1aaf92;
+		background-color: rgba(26, 175, 146, 0.1);
 	}
 
 	.delete-btn {
-		background: none;
-		border: none;
 		color: #ef4444;
 		font-size: 1.2rem;
 		font-weight: 700;
-		cursor: pointer;
-		padding: 0.1rem 0.4rem;
-		border-radius: 4px;
-		line-height: 1;
-		transition: background-color 0.15s ease;
 	}
 
 	.delete-btn:hover {

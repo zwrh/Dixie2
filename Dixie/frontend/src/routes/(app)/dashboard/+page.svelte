@@ -5,6 +5,7 @@
 	// --- Live data from API ---
 	let onlineClients = $state(0);
 	let totalClients = $state(0);
+	let totalCommands = $state(0);
 	const offlineClients = $derived(totalClients - onlineClients);
 	const activePct = $derived(totalClients > 0 ? Math.round((onlineClients / totalClients) * 100) : 0);
 
@@ -21,7 +22,7 @@
 		{ title: 'Total Active', value: onlineClients.toString() },
 		{ title: 'Total Inactive', value: offlineClients.toString() },
 		{ title: 'Total Inventory', value: totalClients.toString() },
-		{ title: 'Total Commands Ran', value: '—' }
+		{ title: 'Total Commands Ran', value: totalCommands.toLocaleString() }
 	]);
 
 	async function loadStats() {
@@ -31,15 +32,38 @@
 				const data = await res.json();
 				totalClients = data.total_clients;
 				onlineClients = data.online_clients;
+				totalCommands = data.total_commands;
+			}
+		} catch { /* silent */ }
+	}
+
+	type HistoryEntry = {
+		id: number;
+		command: string;
+		timestamp: string;
+		recipients: string[];
+		results: { identifier: string; status: string }[];
+	};
+
+	let recentCommands = $state<HistoryEntry[]>([]);
+
+	async function loadRecentCommands() {
+		try {
+			const res = await authFetch('/api/command-history');
+			if (res.ok) {
+				const all: HistoryEntry[] = await res.json();
+				recentCommands = all.slice(0, 3);
 			}
 		} catch { /* silent */ }
 	}
 
 	loadStats();
+	loadRecentCommands();
 
 	const stopRefresh = onRefresh(() => {
 		loadStats();
 		fetchContactRate(timeRange);
+		loadRecentCommands();
 	});
 
 	// --- Contact Rate Line Chart ---
@@ -135,6 +159,107 @@
 		{ value: 'year', label: 'Year' },
 		{ value: 'all', label: 'All Time' }
 	];
+
+	// --- Dixie Pup ---
+	type PupAction = 'idle' | 'feed' | 'pet' | 'trick' | 'sleep';
+	let pupAction = $state<PupAction>('idle');
+	let pupFrame = $state(0);
+	let pupTimer: ReturnType<typeof setInterval> | null = null;
+	let actionTimer: ReturnType<typeof setTimeout> | null = null;
+
+	const pupFrames: Record<PupAction, string[]> = {
+		idle: [
+`  / \\__
+ (    @\\___
+ /         O
+/   (_____/
+/_____/   U`,
+`  / \\__
+ (    @\\___
+ /         O
+/   (_____/
+/_____/  U `
+		],
+		feed: [
+`  / \\__
+ (    @\\___
+  /        O
+ /  (___) /
+/_____/ U
+  nom nom`,
+`  / \\__
+ (    @\\___
+  \\        O
+  /  (___)/
+/_____/U
+ nom nom!`
+		],
+		pet: [
+`  / \\__
+ (    ^\\___
+ /         O
+/   (_____/
+/_____/   U
+    ~ happy ~`,
+`  / \\__
+ (    ^\\___
+  /        O
+ /  (_____/
+/_____/   U
+   ~ wag wag ~`
+		],
+		trick: [
+`     \\__
+  @   __/
+  \\  /
+   OO
+  /  \\
+ U    U
+  spin!`,
+`  / \\__
+ (    @\\___
+  \\  /    O
+   \\/____/
+   /     \\
+  U       U
+  woof!`
+		],
+		sleep: [
+`  / \\__
+ (    -\\___
+ /         O
+/   (_____/   z
+/_____/   U  z
+            z`,
+`  / \\__
+ (    -\\___
+ /         O
+/   (_____/  Z
+/_____/   U Z
+           Z`
+		]
+	};
+
+	function startAnimation() {
+		if (pupTimer) clearInterval(pupTimer);
+		pupFrame = 0;
+		pupTimer = setInterval(() => {
+			pupFrame = (pupFrame + 1) % 2;
+		}, 600);
+	}
+
+	startAnimation();
+
+	function doPupAction(action: PupAction) {
+		if (actionTimer) clearTimeout(actionTimer);
+		pupAction = action;
+		pupFrame = 0;
+		actionTimer = setTimeout(() => {
+			pupAction = 'idle';
+		}, 5000);
+	}
+
+	const currentFrame = $derived(pupFrames[pupAction][pupFrame] || pupFrames[pupAction][0]);
 </script>
 
 <div class="page">
@@ -172,7 +297,6 @@
 					<div class="legend-item">
 						<span class="legend-dot" style:background-color={item.color}></span>
 						<span class="legend-label">{item.label}</span>
-						<span class="legend-value">{item.value}</span>
 					</div>
 				{/each}
 			</div>
@@ -228,15 +352,35 @@
 
 		<div class="card chart-card">
 			<h2>Recent Activity</h2>
-			<div class="placeholder">
-				<span>Activity feed coming soon</span>
-			</div>
+			{#if recentCommands.length === 0}
+				<div class="placeholder">
+					<span>No commands sent yet</span>
+				</div>
+			{:else}
+				<div class="activity-list">
+					{#each recentCommands as entry}
+						<div class="activity-item">
+							<code class="activity-cmd">{entry.command}</code>
+							<div class="activity-meta">
+								<span class="activity-clients">{entry.recipients.length} clients</span>
+								<span class="activity-time">{entry.timestamp}</span>
+							</div>
+						</div>
+					{/each}
+				</div>
+			{/if}
 		</div>
 
-		<div class="card chart-card">
-			<h2>Performance</h2>
-			<div class="placeholder">
-				<span>Metrics coming soon</span>
+		<div class="card chart-card pup-card">
+			<h2>Dixie</h2>
+			<div class="pup-display">
+				<pre class="pup-art">{currentFrame}</pre>
+			</div>
+			<div class="pup-buttons">
+				<button class="pup-btn" onclick={() => doPupAction('feed')} disabled={pupAction !== 'idle'}>Feed</button>
+				<button class="pup-btn" onclick={() => doPupAction('pet')} disabled={pupAction !== 'idle'}>Pet</button>
+				<button class="pup-btn" onclick={() => doPupAction('trick')} disabled={pupAction !== 'idle'}>Trick</button>
+				<button class="pup-btn" onclick={() => doPupAction('sleep')} disabled={pupAction !== 'idle'}>Sleep</button>
 			</div>
 		</div>
 	</div>
@@ -403,32 +547,113 @@
 
 	.legend {
 		display: flex;
-		flex-direction: column;
-		gap: 0.5rem;
+		justify-content: center;
+		gap: 1.5rem;
 	}
 
 	.legend-item {
 		display: flex;
 		align-items: center;
-		gap: 0.5rem;
+		gap: 0.4rem;
 		font-size: 0.8rem;
 	}
 
 	.legend-dot {
-		width: 10px;
-		height: 10px;
+		width: 8px;
+		height: 8px;
 		border-radius: 50%;
 		flex-shrink: 0;
 	}
 
 	.legend-label {
 		color: var(--color-text-muted);
-		flex: 1;
 	}
 
-	.legend-value {
+	.activity-list {
+		display: flex;
+		flex-direction: column;
+		gap: 0.5rem;
+	}
+
+	.activity-item {
+		padding: 0.6rem 0.75rem;
+		background-color: var(--color-surface);
+		border: 1px solid var(--color-border);
+		border-radius: 6px;
+	}
+
+	.activity-cmd {
+		display: block;
+		font-family: 'SF Mono', 'Fira Code', monospace;
+		font-size: 0.8rem;
 		color: var(--color-text);
+		margin-bottom: 0.3rem;
+		overflow: hidden;
+		text-overflow: ellipsis;
+		white-space: nowrap;
+	}
+
+	.activity-meta {
+		display: flex;
+		gap: 0.75rem;
+		font-size: 0.7rem;
+		color: var(--color-text-muted);
+	}
+
+	.activity-clients {
+		color: #1aaf92;
+		font-weight: 500;
+	}
+
+	.pup-card {
+		display: flex;
+		flex-direction: column;
+	}
+
+	.pup-display {
+		flex: 1;
+		display: flex;
+		align-items: center;
+		justify-content: center;
+		min-height: 140px;
+	}
+
+	.pup-art {
+		font-family: 'SF Mono', 'Fira Code', 'Courier New', monospace;
+		font-size: 0.7rem;
+		line-height: 1.3;
+		color: #1aaf92;
+		margin: 0;
+		white-space: pre;
+		text-align: center;
+	}
+
+	.pup-buttons {
+		display: flex;
+		gap: 0.4rem;
+	}
+
+	.pup-btn {
+		flex: 1;
+		padding: 0.4rem 0;
+		background: var(--color-surface);
+		border: 1px solid var(--color-border);
+		border-radius: 6px;
+		color: var(--color-text);
+		font-size: 0.7rem;
 		font-weight: 600;
+		cursor: pointer;
+		transition: all 0.15s ease;
+	}
+
+	.pup-btn:hover:not(:disabled) {
+		border-color: #1aaf92;
+		color: #1aaf92;
+	}
+
+	.pup-btn:disabled {
+		opacity: 0.35;
+		cursor: not-allowed;
 	}
 
 	.placeholder {

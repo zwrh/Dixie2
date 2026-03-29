@@ -433,8 +433,9 @@ def get_stats():
     online_clients = db.execute(
         "SELECT COUNT(*) as count FROM clients WHERE status = 'responsive'"
     ).fetchone()["count"]
-
-    total_commands = db.execute("SELECT COUNT(*) as count FROM command_history").fetchone()["count"]
+    total_commands = db.execute(
+        "SELECT COUNT(*) as count FROM command_history"
+    ).fetchone()["count"]
 
     return jsonify(
         {

@@ -152,7 +152,7 @@
 		gap: 0.75rem;
 		padding: 0.625rem 0.75rem;
 		border-radius: 8px;
-		color: #a1a1b5;
+		color: #7d8da0;
 		text-decoration: none;
 		font-size: 0.875rem;
 		font-weight: 500;
@@ -181,7 +181,7 @@
 		gap: 0.75rem;
 		padding: 0.625rem 0.75rem;
 		border-radius: 8px;
-		color: #a1a1b5;
+		color: #7d8da0;
 		background: none;
 		border: none;
 		cursor: pointer;

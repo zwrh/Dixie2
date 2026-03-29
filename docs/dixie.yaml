@@ -1,0 +1,485 @@
+openapi: 3.0.3
+info:
+  title: Dixie2 C2 API
+  description: REST API for the Dixie2 command-and-control server. All endpoints except login require a Bearer JWT token.
+  version: 1.0.0
+
+servers:
+  - url: http://localhost:5001
+    description: Local development server
+
+components:
+  securitySchemes:
+    BearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+
+  schemas:
+    Error:
+      type: object
+      properties:
+        error:
+          type: string
+      required: [error]
+
+    Message:
+      type: object
+      properties:
+        message:
+          type: string
+      required: [message]
+
+    Client:
+      type: object
+      properties:
+        id:
+          type: integer
+        identifier:
+          type: string
+        system_type:
+          type: string
+          enum: [Windows, Linux]
+        ip_address:
+          type: string
+        target_port:
+          type: integer
+        date_added:
+          type: string
+          format: date-time
+        last_seen:
+          type: string
+          format: date-time
+          nullable: true
+        status:
+          type: string
+          enum: [responsive, non-responsive]
+      required: [id, identifier, system_type, ip_address, target_port, date_added, status]
+
+    CommandResult:
+      type: object
+      properties:
+        identifier:
+          type: string
+        status:
+          type: string
+          enum: [sent, failed]
+        error:
+          type: string
+          description: Present only when status is failed.
+      required: [identifier, status]
+
+    CommandHistoryEntry:
+      type: object
+      properties:
+        id:
+          type: integer
+        command:
+          type: string
+        timestamp:
+          type: string
+          format: date-time
+        recipients:
+          type: array
+          items:
+            type: string
+        results:
+          type: array
+          items:
+            $ref: "#/components/schemas/CommandResult"
+      required: [id, command, timestamp, recipients, results]
+
+    ContactRateEntry:
+      type: object
+      properties:
+        timestamp:
+          type: string
+          format: date-time
+        total:
+          type: integer
+        responsive:
+          type: integer
+      required: [timestamp, total, responsive]
+
+security:
+  - BearerAuth: []
+
+paths:
+  /api/login:
+    post:
+      summary: Authenticate and obtain a JWT token
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                username:
+                  type: string
+                password:
+                  type: string
+              required: [username, password]
+      responses:
+        "200":
+          description: Login successful
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  username:
+                    type: string
+                  token:
+                    type: string
+                required: [username, token]
+        "400":
+          description: Missing request body or credentials
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "401":
+          description: Invalid credentials
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+
+  /api/me:
+    get:
+      summary: Get the current authenticated user
+      responses:
+        "200":
+          description: Current user info
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  username:
+                    type: string
+                required: [username]
+        "401":
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+
+  /api/change-password:
+    post:
+      summary: Change the current user's password
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                current_password:
+                  type: string
+                new_password:
+                  type: string
+                  minLength: 8
+              required: [current_password, new_password]
+      responses:
+        "200":
+          description: Password changed
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Message"
+        "400":
+          description: Missing fields or new password too short
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "401":
+          description: Current password incorrect
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+
+  /api/clients:
+    get:
+      summary: List all clients
+      responses:
+        "200":
+          description: Array of clients ordered by last_seen descending
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/Client"
+    post:
+      summary: Add a new client
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                identifier:
+                  type: string
+                  maxLength: 64
+                system_type:
+                  type: string
+                  enum: [Windows, Linux]
+                ip_address:
+                  type: string
+                  description: IPv4 address (e.g. 192.168.1.10)
+                target_port:
+                  type: integer
+                  minimum: 1
+                  maximum: 65535
+              required: [identifier, system_type, ip_address, target_port]
+      responses:
+        "201":
+          description: Client added
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Message"
+        "400":
+          description: Validation error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "409":
+          description: Duplicate identifier
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+
+  /api/clients/{clientId}:
+    parameters:
+      - name: clientId
+        in: path
+        required: true
+        schema:
+          type: integer
+    get:
+      summary: Get a single client by ID
+      responses:
+        "200":
+          description: Client details
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Client"
+        "404":
+          description: Client not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+    put:
+      summary: Update a client
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                identifier:
+                  type: string
+                system_type:
+                  type: string
+                  enum: [Windows, Linux]
+                ip_address:
+                  type: string
+                target_port:
+                  type: integer
+      responses:
+        "200":
+          description: Client updated
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Message"
+        "400":
+          description: No valid fields provided
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "404":
+          description: Client not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "409":
+          description: Duplicate identifier
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+    delete:
+      summary: Delete a client
+      responses:
+        "200":
+          description: Client deleted
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Message"
+        "404":
+          description: Client not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+
+  /api/clients/command:
+    post:
+      summary: Send a command to one or more clients
+      description: |
+        Dispatches a raw TCP packet containing the command to each target client.
+        Results are logged to command_history for the history page.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                identifiers:
+                  type: array
+                  items:
+                    type: string
+                  minItems: 1
+                  description: Client identifiers to send the command to
+                command:
+                  type: string
+                  description: The command string to execute
+              required: [identifiers, command]
+      responses:
+        "200":
+          description: Command dispatched to all targets
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  results:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/CommandResult"
+                required: [results]
+        "400":
+          description: Missing or invalid fields
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "404":
+          description: One or more identifiers not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+
+  /api/command-history:
+    get:
+      summary: Get command history
+      description: Returns all previously sent commands with per-client results, ordered newest first.
+      responses:
+        "200":
+          description: Array of command history entries
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/CommandHistoryEntry"
+
+  /api/stats:
+    get:
+      summary: Get dashboard statistics
+      responses:
+        "200":
+          description: Aggregate stats
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  total_clients:
+                    type: integer
+                  online_clients:
+                    type: integer
+                  total_commands:
+                    type: integer
+                required: [total_clients, online_clients, total_commands]
+
+  /api/contact-rate:
+    get:
+      summary: Get ping history for contact rate chart
+      parameters:
+        - name: range
+          in: query
+          schema:
+            type: string
+            enum: [day, week, month, year, all]
+            default: month
+          description: Time range to query. "all" returns the full history.
+      responses:
+        "200":
+          description: Array of ping log entries
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/ContactRateEntry"
+
+  /api/settings:
+    get:
+      summary: Get all settings as key-value pairs
+      responses:
+        "200":
+          description: Settings object
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties:
+                  type: string
+                example:
+                  ping_interval: "30"
+    put:
+      summary: Update settings
+      description: Accepts a JSON object of key-value pairs to update. Changing ping_interval reschedules the background ping job.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties:
+                type: string
+              example:
+                ping_interval: "60"
+      responses:
+        "200":
+          description: Settings updated
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Message"
+        "400":
+          description: Missing request body
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"

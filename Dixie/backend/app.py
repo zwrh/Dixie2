@@ -454,8 +454,16 @@ def update_settings():
 logger = logging.getLogger(__name__)
 
 
+def _ping_single(client):
+    """Ping a single client and return (id, identifier, ip, reachable)."""
+    reachable = ping(client["ip_address"])
+    return client["id"], client["identifier"], client["ip_address"], reachable
+
+
 def ping_clients():
-    """Ping all clients and update their status in the database."""
+    """Ping all clients concurrently and update their status in the database."""
+    from concurrent.futures import ThreadPoolExecutor
+
     db = sqlite3.connect(DATABASE)
     db.row_factory = sqlite3.Row
     clients = db.execute("SELECT id, identifier, ip_address FROM clients").fetchall()
@@ -465,26 +473,27 @@ def ping_clients():
         return
 
     identifiers = [c["identifier"] for c in clients]
-    logger.debug("Running ping checks on: %s", ", ".join(identifiers))
+    logger.debug("Running ping checks on %d clients: %s", len(clients), ", ".join(identifiers))
 
     now = datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%d %H:%M:%S")
-    for client in clients:
-        reachable = ping(client["ip_address"])
+
+    with ThreadPoolExecutor(max_workers=min(len(clients), 50)) as pool:
+        results = pool.map(_ping_single, clients)
+
+    for client_id, identifier, ip, reachable in results:
         logger.debug(
-            "Ping %s (%s): %s",
-            client["identifier"],
-            client["ip_address"],
+            "Ping %s (%s): %s", identifier, ip,
             "responsive" if reachable else "non-responsive",
         )
         if reachable:
             db.execute(
                 "UPDATE clients SET status = 'responsive', last_seen = ? WHERE id = ?",
-                (now, client["id"]),
+                (now, client_id),
             )
         else:
             db.execute(
                 "UPDATE clients SET status = 'non-responsive' WHERE id = ?",
-                (client["id"],),
+                (client_id,),
             )
 
     # Log this ping cycle

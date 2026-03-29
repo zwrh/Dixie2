@@ -430,9 +430,9 @@ paths:
           in: query
           schema:
             type: string
-            enum: [day, week, month, year, all]
+            enum: [day, week, month, year]
             default: month
-          description: Time range to query. "all" returns the full history.
+          description: Time range to filter ping history. Defaults to last 30 days.
       responses:
         "200":
           description: Array of ping log entries

@@ -45,6 +45,29 @@
 			]
 		},
 		{
+			title: 'Interactive Terminal',
+			description: 'Opening a live reverse shell session to a client through the browser.',
+			steps: [
+				'Navigate to Terminal in the sidebar to see all registered clients',
+				'Responsive clients show a "Connect" link — click it to open a session',
+				'The backend triggers a reverse shell on the implant and bridges the connection over WebSocket',
+				'The shell is automatically upgraded to a full PTY (via python3 pty.spawn) for proper echo and line editing',
+				'Type commands directly in the xterm.js terminal — output streams back in real time',
+				'Close the tab or click "Back" to disconnect and clean up the session'
+			]
+		},
+		{
+			title: 'Command History',
+			description: 'Reviewing previously dispatched commands and their results.',
+			steps: [
+				'Navigate to History in the sidebar to see all commands sent',
+				'Each entry shows the command text, timestamp, and sent/failed counts',
+				'Click an entry to open a detail modal with the full recipient list and per-client status',
+				'The list auto-refreshes every 15 seconds and shows the 20 most recent entries by default',
+				'Click "Show N more" at the bottom to expand the full history'
+			]
+		},
+		{
 			title: 'Health Monitoring',
 			description: 'How Dixie2 tracks which clients are alive.',
 			steps: [

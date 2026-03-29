@@ -117,35 +117,63 @@
 		}
 	}
 
-	// --- Add Client ---
+	// --- Add Client(s) ---
+	type NewClientRow = { identifier: string; system_type: string; ip_address: string; target_port: string };
 	let showAddClient = $state(false);
-	let newClient = $state({ identifier: '', system_type: '', ip_address: '', target_port: '' });
+	let newClients = $state<NewClientRow[]>([{ identifier: '', system_type: '', ip_address: '', target_port: '' }]);
 	let addError = $state('');
 	let addLoading = $state(false);
+
+	function emptyRow(): NewClientRow {
+		return { identifier: '', system_type: '', ip_address: '', target_port: '' };
+	}
+
+	function addRow() {
+		newClients.push(emptyRow());
+		newClients = [...newClients];
+	}
+
+	function removeRow(i: number) {
+		if (newClients.length <= 1) return;
+		newClients.splice(i, 1);
+		newClients = [...newClients];
+	}
 
 	async function addClient(e: Event) {
 		e.preventDefault();
 		addError = '';
 		addLoading = true;
-		try {
-			const res = await authFetch('/api/clients', {
-				method: 'POST',
-				headers: { 'Content-Type': 'application/json' },
-				body: JSON.stringify(newClient)
-			});
-			const data = await res.json();
-			if (res.ok) {
-				showAddClient = false;
-				newClient = { identifier: '', system_type: '', ip_address: '', target_port: '' };
-				loadClients();
-			} else {
-				addError = data.error || 'Failed to add client.';
+		const errors: string[] = [];
+		let anySuccess = false;
+
+		for (let i = 0; i < newClients.length; i++) {
+			const client = newClients[i];
+			if (!client.identifier.trim() && !client.ip_address.trim()) continue;
+			try {
+				const res = await authFetch('/api/clients', {
+					method: 'POST',
+					headers: { 'Content-Type': 'application/json' },
+					body: JSON.stringify(client)
+				});
+				const data = await res.json();
+				if (res.ok) {
+					anySuccess = true;
+				} else {
+					errors.push(`Row ${i + 1}: ${data.error || 'Failed'}`);
+				}
+			} catch {
+				errors.push(`Row ${i + 1}: Unable to connect`);
 			}
-		} catch {
-			addError = 'Unable to connect to server.';
-		} finally {
-			addLoading = false;
 		}
+
+		if (anySuccess) loadClients();
+		if (errors.length > 0) {
+			addError = errors.join('. ');
+		} else {
+			showAddClient = false;
+			newClients = [emptyRow()];
+		}
+		addLoading = false;
 	}
 
 	// --- Edit Client ---
@@ -249,7 +277,7 @@
 	<div class="card table-section">
 		<div class="section-header">
 			<h2>All Clients</h2>
-			<button class="add-client-btn" onclick={() => showAddClient = true}>+ Add Client</button>
+			<button class="add-client-btn" onclick={() => { newClients = [emptyRow()]; addError = ''; showAddClient = true; }}>+ Add Client</button>
 		</div>
 		{#if loading}
 			<div class="placeholder"><span>Loading clients...</span></div>
@@ -283,12 +311,7 @@
 								</td>
 								<td class="muted-cell">{client.last_seen ?? '—'}</td>
 								<td class="actions-cell">
-									<button class="action-btn terminal-btn" title="Terminal">
-										<svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-											<polyline points="4 17 10 11 4 5" /><line x1="12" y1="19" x2="20" y2="19" />
-										</svg>
-									</button>
-									<button class="action-btn edit-btn" onclick={() => openEdit(client)} title="Edit client">
+<button class="action-btn edit-btn" onclick={() => openEdit(client)} title="Edit client">
 										<svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
 											<path d="M11 4H4a2 2 0 00-2 2v14a2 2 0 002 2h14a2 2 0 002-2v-7" /><path d="M18.5 2.5a2.121 2.121 0 013 3L12 15l-4 1 1-4 9.5-9.5z" />
 										</svg>
@@ -348,41 +371,46 @@
 
 {#if showAddClient}
 	<div class="modal-backdrop" onclick={() => showAddClient = false} role="presentation">
-		<div class="modal" onclick={(e) => e.stopPropagation()} role="dialog">
+		<div class="modal add-modal" onclick={(e) => e.stopPropagation()} role="dialog">
 			<div class="modal-header">
-				<h3>Add Client</h3>
+				<h3>Add Clients</h3>
 				<button class="modal-close" onclick={() => showAddClient = false}>&times;</button>
 			</div>
 			<div class="modal-body">
 				<form onsubmit={addClient}>
-					<div class="form-field">
-						<label for="ac-id">Identifier</label>
-						<input id="ac-id" type="text" bind:value={newClient.identifier} placeholder="e.g. SHADOWFANG" required />
-					</div>
-					<div class="form-field">
-						<label for="ac-sys">System</label>
-						<select id="ac-sys" class="form-select" bind:value={newClient.system_type} required>
-							<option value="" disabled>Select OS</option>
-							<option value="Windows">Windows</option>
-							<option value="Linux">Linux</option>
-						</select>
-					</div>
-					<div class="form-field">
-						<label for="ac-ip">IP Address</label>
-						<input id="ac-ip" type="text" bind:value={newClient.ip_address} placeholder="e.g. 192.168.1.10" required />
-					</div>
-					<div class="form-field">
-						<label for="ac-port">Port</label>
-						<input id="ac-port" type="text" inputmode="numeric" pattern="[0-9]*" bind:value={newClient.target_port} placeholder="e.g. 8080" required />
+					<div class="multi-client-list">
+						{#each newClients as client, i}
+							<div class="client-row">
+								<div class="client-row-header">
+									<span class="row-label">Client {i + 1}</span>
+									{#if newClients.length > 1}
+										<button type="button" class="row-remove" onclick={() => removeRow(i)} title="Remove">&times;</button>
+									{/if}
+								</div>
+								<div class="client-row-fields">
+									<input type="text" bind:value={client.identifier} placeholder="Identifier" required />
+									<select class="form-select" bind:value={client.system_type} required>
+										<option value="" disabled>OS</option>
+										<option value="Windows">Windows</option>
+										<option value="Linux">Linux</option>
+									</select>
+									<input type="text" bind:value={client.ip_address} placeholder="IP Address" required />
+									<input type="text" inputmode="numeric" pattern="[0-9]*" bind:value={client.target_port} placeholder="Port" required />
+								</div>
+							</div>
+						{/each}
 					</div>
 					{#if addError}
 						<div class="form-error">{addError}</div>
 					{/if}
-					<div class="form-actions">
-						<button type="button" class="btn-cancel" onclick={() => showAddClient = false}>Cancel</button>
-						<button type="submit" class="btn-submit" disabled={addLoading}>
-							{addLoading ? 'Adding...' : 'Add Client'}
-						</button>
+					<div class="form-actions-split">
+						<button type="button" class="btn-add-row" onclick={addRow}>+ Add Client</button>
+						<div class="form-actions">
+							<button type="button" class="btn-cancel" onclick={() => showAddClient = false}>Cancel</button>
+							<button type="submit" class="btn-submit" disabled={addLoading}>
+								{addLoading ? 'Adding...' : `Add ${newClients.length} Client${newClients.length !== 1 ? 's' : ''}`}
+							</button>
+						</div>
 					</div>
 				</form>
 			</div>
@@ -810,6 +838,107 @@
 		color: var(--color-text-muted);
 	}
 
+	.add-modal {
+		max-width: 560px;
+	}
+
+	.multi-client-list {
+		display: flex;
+		flex-direction: column;
+		gap: 0.75rem;
+		max-height: 400px;
+		overflow-y: auto;
+		margin-bottom: 1rem;
+	}
+
+	.client-row {
+		padding: 0.75rem;
+		background-color: var(--color-surface);
+		border: 1px solid var(--color-border);
+		border-radius: 8px;
+	}
+
+	.client-row-header {
+		display: flex;
+		align-items: center;
+		justify-content: space-between;
+		margin-bottom: 0.5rem;
+	}
+
+	.row-label {
+		font-size: 0.7rem;
+		font-weight: 600;
+		text-transform: uppercase;
+		letter-spacing: 0.04em;
+		color: var(--color-text-muted);
+	}
+
+	.row-remove {
+		background: none;
+		border: none;
+		color: #ef4444;
+		font-size: 1.1rem;
+		font-weight: 700;
+		cursor: pointer;
+		padding: 0 0.3rem;
+		line-height: 1;
+		border-radius: 4px;
+	}
+
+	.row-remove:hover {
+		background-color: rgba(239, 68, 68, 0.1);
+	}
+
+	.client-row-fields {
+		display: grid;
+		grid-template-columns: 1fr auto 1fr auto;
+		gap: 0.4rem;
+	}
+
+	.client-row-fields input,
+	.client-row-fields select {
+		padding: 0.45rem 0.6rem;
+		border: 1px solid var(--color-border);
+		border-radius: 6px;
+		background-color: var(--color-card-bg);
+		color: var(--color-text);
+		font-size: 0.8rem;
+		min-width: 0;
+	}
+
+	.client-row-fields input:focus,
+	.client-row-fields select:focus {
+		outline: none;
+		border-color: #1aaf92;
+		box-shadow: 0 0 0 2px rgba(26, 175, 146, 0.15);
+	}
+
+	.client-row-fields input::placeholder {
+		color: var(--color-text-muted);
+	}
+
+	.form-actions-split {
+		display: flex;
+		align-items: center;
+		justify-content: space-between;
+	}
+
+	.btn-add-row {
+		background: none;
+		border: 1px dashed var(--color-border);
+		border-radius: 6px;
+		color: #1aaf92;
+		font-size: 0.8rem;
+		font-weight: 600;
+		cursor: pointer;
+		padding: 0.4rem 0.75rem;
+	}
+
+	.btn-add-row:hover {
+		border-color: #1aaf92;
+		background-color: rgba(26, 175, 146, 0.05);
+	}
+
 	.form-error {
 		padding: 0.5rem 0.75rem;
 		background-color: rgba(239, 68, 68, 0.08);
@@ -932,14 +1061,6 @@
 		line-height: 1;
 		transition: background-color 0.15s ease, color 0.15s ease;
 		vertical-align: middle;
-	}
-
-	.terminal-btn {
-		color: #1aaf92;
-	}
-
-	.terminal-btn:hover {
-		background-color: rgba(26, 175, 146, 0.1);
 	}
 
 	.edit-btn {

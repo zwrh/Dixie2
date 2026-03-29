@@ -1,63 +1,79 @@
 <script lang="ts">
 	const sections = [
 		{
-			title: 'Getting Started',
-			description: 'Learn how to set up and configure Dixie for your workflow.',
+			title: 'Prerequisites',
+			description: 'What you need before deploying Dixie2.',
 			steps: [
-				'Install prerequisites (Node.js, Python 3)',
-				'Clone the repository and install dependencies',
-				'Configure your database connection',
-				'Start the development server'
+				'Python 3.10+ and Node.js 18+ installed on the C2 server',
+				'Network access to target machines on their configured ports',
+				'Rootkit implant deployed on each target machine',
+				'A .env file with your JWT_SECRET for API authentication'
 			]
 		},
 		{
-			title: 'Dashboard',
-			description: 'Understanding the analytics dashboard and its components.',
+			title: 'Server Setup',
+			description: 'Getting the Dixie2 backend and frontend running.',
 			steps: [
-				'Overview of key metrics and KPIs',
-				'Reading chart data and trends',
-				'Customizing your dashboard layout',
-				'Exporting reports'
+				'Clone the repository and cd into Dixie/backend',
+				'Create a Python venv: python3 -m venv venv && source venv/bin/activate',
+				'Install dependencies: pip install -r requirements.txt',
+				'Create .env with JWT_SECRET=<your-secret>',
+				'Start the backend: python3 app.py (runs on port 5001)',
+				'In a second terminal, cd into Dixie/frontend and run npm install && npm run dev'
 			]
 		},
 		{
-			title: 'Inventory Management',
-			description: 'How to manage clients and inventory records.',
+			title: 'Registering Clients',
+			description: 'Adding target machines to the database so Dixie2 can reach them.',
 			steps: [
-				'Adding and editing client records',
-				'Searching and filtering inventory',
-				'Bulk import/export operations',
-				'Managing client categories'
+				'Navigate to Management and click "+ Add Client"',
+				'Enter a unique identifier (callsign) for the machine',
+				'Select the OS type (Windows or Linux)',
+				'Provide the IP address and port where the implant is listening',
+				'The health check scheduler will begin pinging the client automatically'
 			]
 		},
 		{
-			title: 'Settings & Configuration',
-			description: 'Configure application settings and user preferences.',
+			title: 'Sending Commands',
+			description: 'Dispatching kernel-level commands to active clients via the rootkit.',
 			steps: [
-				'Account security and password management',
-				'Notification preferences',
-				'API key management',
-				'Backup and restore'
+				'Go to Management and type your command in the Send Command field',
+				'Press Enter to open the target selection popup',
+				'Only responsive (online) clients are listed — select individually or use Select All',
+				'Click "Send to N clients" to dispatch the command to each selected implant',
+				'Results (sent/failed per client) are logged in Command History'
 			]
 		},
 		{
-			title: 'API Reference',
-			description: 'Technical documentation for the REST API.',
+			title: 'Health Monitoring',
+			description: 'How Dixie2 tracks which clients are alive.',
 			steps: [
-				'Authentication and authorization',
-				'Available endpoints and methods',
-				'Request/response formats',
-				'Error handling and status codes'
+				'The backend runs a ping scheduler at a configurable interval (Settings > Health Check Interval)',
+				'Each cycle sends ICMP pings to all registered client IPs',
+				'Responsive clients are marked online with a last_seen timestamp',
+				'Non-responsive clients are flagged offline in the dashboard and client table',
+				'The Contact Rate chart on the dashboard shows responsive client count over time'
 			]
 		},
 		{
-			title: 'Troubleshooting',
-			description: 'Common issues and how to resolve them.',
+			title: 'Dashboard Overview',
+			description: 'Understanding the metrics displayed on the main dashboard.',
 			steps: [
-				'Connection and network issues',
-				'Database migration problems',
-				'Performance optimization tips',
-				'Contacting support'
+				'Total Active / Inactive / Inventory cards show live client counts from the database',
+				'Total Commands Ran counts all commands ever dispatched',
+				'System Status donut shows the active vs unresponsive ratio',
+				'Contact Rate line chart plots responsive clients over a selectable time range',
+				'Recent Activity shows the 3 most recent commands sent'
+			]
+		},
+		{
+			title: 'Settings & Security',
+			description: 'Configuring Dixie2 and securing your access.',
+			steps: [
+				'Change your admin password under Settings > Change Password',
+				'Adjust the health check ping interval under Settings > Configuration',
+				'JWT tokens expire after 24 hours — re-login to get a fresh token',
+				'Never expose the .env file or JWT_SECRET in version control'
 			]
 		}
 	];
@@ -66,16 +82,17 @@
 <div class="page">
 	<div class="page-header">
 		<h1>Documentation</h1>
-		<p class="subtitle">Everything you need to know about Dixie</p>
+		<p class="subtitle">Setup, usage, and operational reference</p>
 	</div>
 
 	<div class="intro-card card">
-		<div class="intro-badge">v0.1.0</div>
-		<h2>Welcome to Dixie</h2>
+		<div class="intro-badge">v2.0</div>
+		<h2>Dixie2 Command & Control</h2>
 		<p>
-			Dixie is a modern dashboard application for managing clients, tracking analytics,
-			and streamlining your workflow. This documentation covers setup, usage, and
-			configuration.
+			Dixie2 is a C2 dashboard for managing rootkit implants across target machines.
+			Register clients by IP, monitor their health via automated ICMP pings, and
+			dispatch kernel-level commands to selected active hosts. This guide covers
+			deployment, client registration, command dispatch, and monitoring.
 		</p>
 	</div>
 

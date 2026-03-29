@@ -104,26 +104,25 @@
 		display: flex;
 		align-items: center;
 		justify-content: center;
+		gap: 4rem;
 		background-color: var(--color-surface-alt);
 		position: relative;
 	}
 
 	.login-left {
-		flex: 1;
 		display: flex;
 		flex-direction: column;
 		align-items: center;
-		justify-content: center;
 	}
 
 	.login-logo {
-		width: 220px;
+		width: 280px;
 		height: auto;
-		margin-bottom: 1rem;
+		margin-bottom: 0.75rem;
 	}
 
 	.login-brand {
-		font-size: 2rem;
+		font-size: 2.25rem;
 		font-weight: 700;
 		color: var(--color-text);
 		margin: 0;
@@ -131,10 +130,9 @@
 	}
 
 	.login-right {
-		flex: 1;
 		display: flex;
 		align-items: center;
-		justify-content: center;
+		width: 400px;
 	}
 
 	.login-card {

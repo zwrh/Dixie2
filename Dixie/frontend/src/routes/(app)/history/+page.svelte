@@ -1,5 +1,6 @@
 <script lang="ts">
 	import { authFetch } from '$lib/auth';
+	import { onRefresh } from '$lib/refresh';
 
 	type HistoryEntry = {
 		id: number;
@@ -27,6 +28,7 @@
 	}
 
 	loadHistory();
+	onRefresh(loadHistory);
 </script>
 
 <div class="page">

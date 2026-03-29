@@ -1,5 +1,6 @@
 <script lang="ts">
 	import { authFetch } from '$lib/auth';
+	import { onRefresh } from '$lib/refresh';
 
 	type Client = {
 		id: number;
@@ -26,6 +27,7 @@
 	}
 
 	loadClients();
+	onRefresh(loadClients);
 
 	function statusColor(status: string): string {
 		switch (status) {

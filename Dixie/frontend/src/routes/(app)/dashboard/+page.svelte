@@ -1,5 +1,6 @@
 <script lang="ts">
 	import { authFetch } from '$lib/auth';
+	import { onRefresh } from '$lib/refresh';
 
 	// --- Live data from API ---
 	let onlineClients = $state(0);
@@ -35,6 +36,11 @@
 	}
 
 	loadStats();
+
+	const stopRefresh = onRefresh(() => {
+		loadStats();
+		fetchContactRate(timeRange);
+	});
 
 	// --- Contact Rate Line Chart ---
 	type TimeRange = 'day' | 'week' | 'month' | 'year' | 'all';

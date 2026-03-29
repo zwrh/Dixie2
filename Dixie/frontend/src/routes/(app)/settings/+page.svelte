@@ -1,5 +1,6 @@
 <script lang="ts">
 	import { authFetch } from '$lib/auth';
+	import { onRefresh } from '$lib/refresh';
 
 	let currentPassword = $state('');
 	let newPassword = $state('');
@@ -100,6 +101,7 @@
 	}
 
 	loadSettings();
+	onRefresh(loadSettings);
 </script>
 
 <div class="page">

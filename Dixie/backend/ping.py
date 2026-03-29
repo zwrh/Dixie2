@@ -31,6 +31,8 @@ def ping(dest, seq=0x1337, timeout=5):
 
         while True:
             data, addr = sock.recvfrom(1024)
+            if addr[0] != dest:
+                continue
             ip_hdr_len = (data[0] & 0x0F) * 4
             icmp_data = data[ip_hdr_len:]
 

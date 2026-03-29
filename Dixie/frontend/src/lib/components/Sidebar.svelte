@@ -21,6 +21,11 @@
 			icon: 'M20 7l-8-4-8 4m16 0l-8 4m8-4v10l-8 4m0-10L4 7m8 4v10M4 7v10l8 4'
 		},
 		{
+			label: 'History',
+			href: '/history',
+			icon: 'M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z'
+		},
+		{
 			label: 'Documentation',
 			href: '/documentation',
 			icon: 'M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z'
@@ -39,8 +44,8 @@
 
 <aside class="sidebar">
 	<div class="logo">
-		<div class="logo-icon">D</div>
-		<span class="logo-text">Dixie</span>
+		<img src="/logo.png" alt="Dixie2 logo" class="logo-img" />
+		<span class="logo-text">Dixie2</span>
 	</div>
 
 	<nav class="nav">
@@ -114,28 +119,21 @@
 
 	.logo {
 		display: flex;
+		flex-direction: column;
 		align-items: center;
-		gap: 0.75rem;
 		padding: 0 1.5rem;
-		margin-bottom: 2rem;
+		margin-bottom: 1.5rem;
 	}
 
-	.logo-icon {
-		width: 36px;
-		height: 36px;
-		background: linear-gradient(135deg, #1aaf92, #0e7161);
-		border-radius: 10px;
-		display: flex;
-		align-items: center;
-		justify-content: center;
-		color: white;
-		font-weight: 700;
-		font-size: 1.1rem;
+	.logo-img {
+		width: 80px;
+		height: auto;
+		margin-bottom: 0.4rem;
 	}
 
 	.logo-text {
 		color: #ffffff;
-		font-size: 1.25rem;
+		font-size: 1.1rem;
 		font-weight: 600;
 		letter-spacing: -0.02em;
 	}

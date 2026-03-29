@@ -37,12 +37,17 @@
 </script>
 
 <div class="login-page">
-	<div class="login-card">
-		<div class="login-header">
-			<div class="logo-icon">D</div>
-			<h1>Dixie</h1>
-			<p>Sign in to your account</p>
-		</div>
+	<div class="login-left">
+		<img src="/logo.png" alt="Dixie2 logo" class="login-logo" />
+		<h1 class="login-brand">Dixie2</h1>
+	</div>
+
+	<div class="login-right">
+		<div class="login-card">
+			<div class="login-header">
+				<h1>Sign In</h1>
+				<p>Sign in to your account</p>
+			</div>
 
 		<form onsubmit={handleLogin}>
 			<div class="field">
@@ -78,6 +83,7 @@
 			</button>
 		</form>
 	</div>
+	</div>
 
 	<button class="theme-btn" onclick={() => theme.toggle()}>
 		{#if theme.dark}
@@ -102,6 +108,35 @@
 		position: relative;
 	}
 
+	.login-left {
+		flex: 1;
+		display: flex;
+		flex-direction: column;
+		align-items: center;
+		justify-content: center;
+	}
+
+	.login-logo {
+		width: 220px;
+		height: auto;
+		margin-bottom: 1rem;
+	}
+
+	.login-brand {
+		font-size: 2rem;
+		font-weight: 700;
+		color: var(--color-text);
+		margin: 0;
+		letter-spacing: -0.02em;
+	}
+
+	.login-right {
+		flex: 1;
+		display: flex;
+		align-items: center;
+		justify-content: center;
+	}
+
 	.login-card {
 		background-color: var(--color-card-bg);
 		border: 1px solid var(--color-border);
@@ -115,20 +150,6 @@
 	.login-header {
 		text-align: center;
 		margin-bottom: 2rem;
-	}
-
-	.logo-icon {
-		width: 48px;
-		height: 48px;
-		background: linear-gradient(135deg, #1aaf92, #0e7161);
-		border-radius: 14px;
-		display: flex;
-		align-items: center;
-		justify-content: center;
-		color: white;
-		font-weight: 700;
-		font-size: 1.35rem;
-		margin: 0 auto 1rem;
 	}
 
 	.login-header h1 {

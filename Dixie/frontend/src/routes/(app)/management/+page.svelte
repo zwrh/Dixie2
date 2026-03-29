@@ -84,19 +84,6 @@
 		if (e.key === 'Enter') promptTargets();
 	}
 
-	type HistoryEntry = {
-		command: string;
-		timestamp: string;
-		recipients: string[];
-		results: { identifier: string; status: string }[];
-	};
-
-	let commandHistory = $state<HistoryEntry[]>([]);
-	let historyExpanded = $state(false);
-	let selectedEntry = $state<HistoryEntry | null>(null);
-
-	const visibleHistory = $derived(historyExpanded ? commandHistory : commandHistory.slice(0, 3));
-
 	async function confirmSend() {
 		if (selectedClients.length === 0) return;
 
@@ -117,12 +104,6 @@
 				activeCommand = pendingCommand;
 				commandInput = '';
 				commandStatus = 'active';
-				commandHistory.unshift({
-					command: pendingCommand,
-					timestamp: new Date().toLocaleString(),
-					recipients: selectedClients.map(c => c.identifier),
-					results: data.results || []
-				});
 			} else {
 				commandError = data.error || 'Failed to send command.';
 				commandStatus = 'error';
@@ -181,13 +162,6 @@
 		deleteTarget = null;
 	}
 
-	function openDetails(entry: HistoryEntry) {
-		selectedEntry = entry;
-	}
-
-	function closeDetails() {
-		selectedEntry = null;
-	}
 </script>
 
 <div class="page">
@@ -226,63 +200,6 @@
 			<div class="command-error">{commandError}</div>
 		{/if}
 	</div>
-
-	{#if commandHistory.length > 0}
-		<div class="card history-section">
-			<h2>Command History</h2>
-			<div class="history-list">
-				{#each visibleHistory as entry}
-					<button class="history-item" onclick={() => openDetails(entry)}>
-						<code class="history-cmd">{entry.command}</code>
-						<span class="history-meta">
-							<span class="history-recipients">{entry.recipients.length} clients</span>
-							<span class="history-time">{entry.timestamp}</span>
-						</span>
-					</button>
-				{/each}
-			</div>
-			{#if commandHistory.length > 3}
-				<button class="more-link" onclick={() => historyExpanded = !historyExpanded}>
-					{historyExpanded ? 'Show less' : `Show ${commandHistory.length - 3} more`}
-				</button>
-			{/if}
-		</div>
-	{/if}
-
-	{#if selectedEntry}
-		<div class="modal-backdrop" onclick={closeDetails} role="presentation">
-			<div class="modal" onclick={(e) => e.stopPropagation()} role="dialog">
-				<div class="modal-header">
-					<h3>Command Details</h3>
-					<button class="modal-close" onclick={closeDetails}>&times;</button>
-				</div>
-				<div class="modal-body">
-					<div class="detail-row">
-						<span class="detail-label">Command</span>
-						<code class="detail-value">{selectedEntry.command}</code>
-					</div>
-					<div class="detail-row">
-						<span class="detail-label">Sent</span>
-						<span class="detail-value">{selectedEntry.timestamp}</span>
-					</div>
-					<div class="detail-row">
-						<span class="detail-label">Recipients ({selectedEntry.recipients.length})</span>
-					</div>
-					<div class="recipients-list">
-						{#each selectedEntry.results.length > 0 ? selectedEntry.results : selectedEntry.recipients.map(r => ({ identifier: r, status: 'sent' })) as item}
-							<div class="recipient">
-								<span class="recipient-dot" style:background-color={item.status === 'sent' ? '#22c55e' : '#ef4444'}></span>
-								{item.identifier}
-								{#if item.status === 'failed'}
-									<span class="recipient-failed">failed</span>
-								{/if}
-							</div>
-						{/each}
-					</div>
-				</div>
-			</div>
-		</div>
-	{/if}
 
 	<div class="card table-section">
 		<div class="section-header">
@@ -680,70 +597,6 @@
 		font-size: 0.8rem;
 	}
 
-	.history-list {
-		display: flex;
-		flex-direction: column;
-		gap: 0.375rem;
-	}
-
-	.history-item {
-		display: flex;
-		align-items: center;
-		justify-content: space-between;
-		gap: 1rem;
-		padding: 0.6rem 0.75rem;
-		background-color: var(--color-surface);
-		border: 1px solid var(--color-border);
-		border-radius: 6px;
-		cursor: pointer;
-		transition: border-color 0.15s ease, background-color 0.15s ease;
-		text-align: left;
-		width: 100%;
-		color: inherit;
-		font: inherit;
-	}
-
-	.history-item:hover {
-		border-color: #1aaf92;
-		background-color: var(--color-surface-hover);
-	}
-
-	.history-cmd {
-		font-family: 'SF Mono', 'Fira Code', monospace;
-		font-size: 0.8rem;
-		color: var(--color-text);
-	}
-
-	.history-meta {
-		display: flex;
-		align-items: center;
-		gap: 0.75rem;
-		font-size: 0.75rem;
-		color: var(--color-text-muted);
-		flex-shrink: 0;
-	}
-
-	.history-recipients {
-		color: #1aaf92;
-		font-weight: 500;
-	}
-
-	.more-link {
-		display: inline-block;
-		margin-top: 0.5rem;
-		padding: 0;
-		background: none;
-		border: none;
-		color: #1aaf92;
-		font-size: 0.8rem;
-		font-weight: 500;
-		cursor: pointer;
-	}
-
-	.more-link:hover {
-		text-decoration: underline;
-	}
-
 	.modal-backdrop {
 		position: fixed;
 		inset: 0;
@@ -794,64 +647,6 @@
 
 	.modal-body {
 		padding: 1.25rem;
-	}
-
-	.detail-row {
-		display: flex;
-		align-items: baseline;
-		gap: 0.75rem;
-		margin-bottom: 0.75rem;
-	}
-
-	.detail-label {
-		font-size: 0.75rem;
-		font-weight: 600;
-		text-transform: uppercase;
-		letter-spacing: 0.04em;
-		color: var(--color-text-muted);
-		flex-shrink: 0;
-	}
-
-	.detail-value {
-		font-size: 0.85rem;
-		color: var(--color-text);
-	}
-
-	code.detail-value {
-		font-family: 'SF Mono', 'Fira Code', monospace;
-		font-size: 0.8rem;
-	}
-
-	.recipients-list {
-		display: flex;
-		flex-direction: column;
-		gap: 0.35rem;
-		max-height: 200px;
-		overflow-y: auto;
-	}
-
-	.recipient {
-		display: flex;
-		align-items: center;
-		gap: 0.5rem;
-		font-size: 0.8rem;
-		color: var(--color-text);
-		padding: 0.35rem 0.5rem;
-		background-color: var(--color-surface);
-		border-radius: 4px;
-	}
-
-	.recipient-dot {
-		width: 6px;
-		height: 6px;
-		border-radius: 50%;
-		flex-shrink: 0;
-	}
-
-	.recipient-failed {
-		font-size: 0.7rem;
-		color: #ef4444;
-		margin-left: auto;
 	}
 
 	.section-header {

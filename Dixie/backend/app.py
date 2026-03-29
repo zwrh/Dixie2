@@ -12,7 +12,7 @@ from dotenv import load_dotenv
 from flask import Flask, g, jsonify, request
 from flask_cors import CORS
 
-from ping import ping
+from ping import ping, ping_batch
 from send_cmd import send_command
 
 load_dotenv()
@@ -82,6 +82,26 @@ def init_db():
             timestamp TEXT NOT NULL DEFAULT (datetime('now')),
             total_clients INTEGER NOT NULL,
             responsive INTEGER NOT NULL
+        )
+    """
+    )
+    db.execute(
+        """
+        CREATE TABLE IF NOT EXISTS command_history (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            command TEXT NOT NULL,
+            timestamp TEXT NOT NULL DEFAULT (datetime('now'))
+        )
+    """
+    )
+    db.execute(
+        """
+        CREATE TABLE IF NOT EXISTS command_results (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            command_id INTEGER NOT NULL,
+            identifier TEXT NOT NULL,
+            status TEXT NOT NULL,
+            FOREIGN KEY (command_id) REFERENCES command_history(id)
         )
     """
     )
@@ -361,7 +381,46 @@ def send_client_command():
         except OSError as e:
             results.append({"identifier": client["identifier"], "status": "failed", "error": str(e)})
 
+    # Log command to history
+    now = datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%d %H:%M:%S")
+    cursor = db.execute(
+        "INSERT INTO command_history (command, timestamp) VALUES (?, ?)",
+        (command, now),
+    )
+    command_id = cursor.lastrowid
+    for r in results:
+        db.execute(
+            "INSERT INTO command_results (command_id, identifier, status) VALUES (?, ?, ?)",
+            (command_id, r["identifier"], r["status"]),
+        )
+    db.commit()
+
     return jsonify({"results": results})
+
+
+@app.route("/api/command-history", methods=["GET"])
+@auth_required
+def get_command_history():
+    db = get_db()
+    rows = db.execute(
+        "SELECT id, command, timestamp FROM command_history ORDER BY id DESC"
+    ).fetchall()
+
+    entries = []
+    for row in rows:
+        results = db.execute(
+            "SELECT identifier, status FROM command_results WHERE command_id = ?",
+            (row["id"],),
+        ).fetchall()
+        entries.append({
+            "id": row["id"],
+            "command": row["command"],
+            "timestamp": row["timestamp"],
+            "recipients": [r["identifier"] for r in results],
+            "results": [{"identifier": r["identifier"], "status": r["status"]} for r in results],
+        })
+
+    return jsonify(entries)
 
 
 @app.route("/api/stats", methods=["GET"])
@@ -375,10 +434,13 @@ def get_stats():
         "SELECT COUNT(*) as count FROM clients WHERE status = 'responsive'"
     ).fetchone()["count"]
 
+    total_commands = db.execute("SELECT COUNT(*) as count FROM command_history").fetchone()["count"]
+
     return jsonify(
         {
             "total_clients": total_clients,
             "online_clients": online_clients,
+            "total_commands": total_commands,
         }
     )
 
@@ -454,16 +516,8 @@ def update_settings():
 logger = logging.getLogger(__name__)
 
 
-def _ping_single(client):
-    """Ping a single client and return (id, identifier, ip, reachable)."""
-    reachable = ping(client["ip_address"])
-    return client["id"], client["identifier"], client["ip_address"], reachable
-
-
 def ping_clients():
-    """Ping all clients concurrently and update their status in the database."""
-    from concurrent.futures import ThreadPoolExecutor
-
+    """Ping all clients using a single socket and update their status in the database."""
     db = sqlite3.connect(DATABASE)
     db.row_factory = sqlite3.Row
     clients = db.execute("SELECT id, identifier, ip_address FROM clients").fetchall()
@@ -477,23 +531,25 @@ def ping_clients():
 
     now = datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%d %H:%M:%S")
 
-    with ThreadPoolExecutor(max_workers=min(len(clients), 50)) as pool:
-        results = pool.map(_ping_single, clients)
+    ip_list = [c["ip_address"] for c in clients]
+    results = ping_batch(ip_list)
 
-    for client_id, identifier, ip, reachable in results:
+    for client in clients:
+        ip = client["ip_address"]
+        reachable = results.get(ip)
         logger.debug(
-            "Ping %s (%s): %s", identifier, ip,
+            "Ping %s (%s): %s", client["identifier"], ip,
             "responsive" if reachable else "non-responsive",
         )
         if reachable:
             db.execute(
                 "UPDATE clients SET status = 'responsive', last_seen = ? WHERE id = ?",
-                (now, client_id),
+                (now, client["id"]),
             )
         else:
             db.execute(
                 "UPDATE clients SET status = 'non-responsive' WHERE id = ?",
-                (client_id,),
+                (client["id"],),
             )
 
     # Log this ping cycle

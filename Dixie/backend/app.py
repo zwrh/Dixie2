@@ -1,3 +1,4 @@
+import atexit
 import datetime
 import hashlib
 import logging
@@ -509,10 +510,14 @@ def get_ping_interval():
 
 
 scheduler = BackgroundScheduler()
+atexit.register(lambda: scheduler.shutdown(wait=False) if scheduler.running else None)
 
 
 def start_scheduler():
+    if scheduler.running:
+        scheduler.shutdown(wait=False)
     interval = get_ping_interval()
+    logger.debug("Starting scheduler with ping interval: %d seconds", interval)
     scheduler.add_job(
         ping_clients,
         "interval",
@@ -520,13 +525,17 @@ def start_scheduler():
         id="ping_clients",
         replace_existing=True,
     )
-    if not scheduler.running:
-        scheduler.start()
+    scheduler.start()
 
 
 with app.app_context():
     init_db()
-    start_scheduler()
+    # Avoid double scheduler when Flask reloader is active
+    if os.environ.get("WERKZEUG_RUN_MAIN") == "true" or not app.debug:
+        logger.debug("Scheduler guard passed, starting scheduler...")
+        start_scheduler()
+    else:
+        logger.debug("Skipping scheduler start (reloader parent process)")
 
 
 if __name__ == "__main__":

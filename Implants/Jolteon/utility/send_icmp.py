@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 import socket
 import struct
+import sys
 
 def checksum(data):
     if len(data) % 2:

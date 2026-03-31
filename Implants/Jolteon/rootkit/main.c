@@ -26,6 +26,7 @@ MODULE_VERSION("1");
 
 static void __exit mod_exit(void){
     remove_all_hooks();
+    beacon_stop();
     unregister_netfilter_hook();
     printk(KERN_DEBUG "Successfully unloaded\n");
 }

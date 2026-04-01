@@ -16,14 +16,14 @@
 
 ## About
 
-Dixie2 is a C2 (command-and-control) platform for managing Linux rootkit implants across target machines. It provides a web dashboard for registering clients, monitoring their health via ICMP pings, dispatching kernel-level commands, and opening interactive reverse shell sessions — all from the browser.
+Dixie2 is a C2 (command-and-control) platform for managing Linux rootkit implants across target machines. It provides a web dashboard for registering clients, monitoring their health via ICMP beacons, dispatching kernel-level commands, and opening interactive reverse shell sessions — all from the browser.
 
 ## Features
 
 - **Client Management** — Register targets by identifier, IP, port, and OS type. Edit or remove them at any time.
 - **Command Dispatch** — Send commands to one or many clients simultaneously via raw TCP packets. Per-client sent/failed results are tracked.
 - **Interactive Terminal** — Open a live reverse shell to any responsive client through an in-browser xterm.js terminal, bridged over WebSocket with automatic PTY upgrade.
-- **Health Monitoring** — Background scheduler pings all clients at a configurable interval using custom ICMP echo requests. Responsive/unresponsive status is tracked with timestamps.
+- **Health Monitoring** — Listens for ICMP beacons sent by implants at regular intervals. Responsive/unresponsive status is tracked with timestamps.
 - **Dashboard** — Live stats (active/inactive/total clients, total commands), a contact rate chart over time, recent command activity, and an interactive ASCII pup.
 - **Command History** — Full log of every command sent, with per-client delivery status and expandable detail modals.
 - **JWT Authentication** — Token-based auth with 24-hour expiration, password change support.
@@ -39,8 +39,8 @@ Dixie2 is a C2 (command-and-control) platform for managing Linux rootkit implant
 └─────────────────┘                                └────────┬─────────┘
                                                             │
                                               Raw TCP ──────┤────── ICMP
-                                              (commands)    │      (pings)
-                                                            ▼
+                                              (commands)    │      (beacons)
+                                                            ▲
                                                    ┌────────────────┐
                                                    │  Jolteon        │
                                                    │  Rootkit        │
@@ -101,7 +101,7 @@ Full OpenAPI 3.0.3 spec is available at [`docs/dixie.yaml`](docs/dixie.yaml).
 | `POST` | `/api/clients/command` | Send command to clients |
 | `GET` | `/api/command-history` | Command log with results |
 | `GET` | `/api/stats` | Dashboard statistics |
-| `GET` | `/api/contact-rate` | Ping history for charts |
+| `GET` | `/api/contact-rate` | Beacon history for charts |
 | `GET` | `/api/settings` | Get settings |
 | `PUT` | `/api/settings` | Update settings |
 
@@ -125,7 +125,7 @@ Dixie2/
 ├── Dixie/
 │   ├── backend/
 │   │   ├── app.py              # Flask + SocketIO server
-│   │   ├── ping.py             # ICMP health checks (single & batch)
+│   │   ├── ping.py             # ICMP beacon listener
 │   │   ├── send_cmd.py         # Raw TCP command dispatch
 │   │   ├── send_backdoor.py    # Reverse shell trigger packets
 │   │   ├── requirements.txt

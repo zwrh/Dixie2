@@ -15,7 +15,7 @@ This software is provided strictly for **educational and authorized research pur
 
 ## Overview
 
-This directory contains kernel-level implants that communicate with the Dixie backend via ICMP. Each implant responds to ICMP Echo Requests with a `JOLTEON_ALIVE` payload to signal that the client is active and responsive.
+This directory contains kernel-level implants that communicate with the Dixie backend via ICMP. Each implant periodically sends ICMP Echo Requests with a `JOLTEON_ALIVE` payload to beacon back to the server, signaling that the client is active and responsive.
 
 ## Requirements
 

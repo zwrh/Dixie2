@@ -1,6 +1,5 @@
 <script lang="ts">
 	import { authFetch } from '$lib/auth';
-	import { onRefresh } from '$lib/refresh';
 
 	let currentPassword = $state('');
 	let newPassword = $state('');
@@ -56,52 +55,6 @@
 			loading = false;
 		}
 	}
-
-	// --- Configuration Settings ---
-	const intervalOptions = [
-		{ value: '10', label: '10 seconds' },
-		{ value: '30', label: '30 seconds' },
-		{ value: '60', label: '1 minute' },
-		{ value: '120', label: '2 minutes' },
-		{ value: '300', label: '5 minutes' },
-		{ value: '600', label: '10 minutes' },
-		{ value: '1800', label: '30 minutes' },
-		{ value: '3600', label: '1 hour' }
-	];
-
-	let pingInterval = $state('30');
-	let configMessage = $state('');
-	let configSaving = $state(false);
-
-	async function loadSettings() {
-		try {
-			const res = await authFetch('/api/settings');
-			if (res.ok) {
-				const data = await res.json();
-				if (data.ping_interval) pingInterval = data.ping_interval;
-			}
-		} catch { /* silent */ }
-	}
-
-	async function savePingInterval() {
-		configSaving = true;
-		configMessage = '';
-		try {
-			const res = await authFetch('/api/settings', {
-				method: 'PUT',
-				headers: { 'Content-Type': 'application/json' },
-				body: JSON.stringify({ ping_interval: pingInterval })
-			});
-			if (res.ok) {
-				configMessage = 'saved';
-				setTimeout(() => configMessage = '', 2000);
-			}
-		} catch { /* silent */ }
-		configSaving = false;
-	}
-
-	loadSettings();
-	onRefresh(loadSettings);
 </script>
 
 <div class="page">
@@ -160,27 +113,6 @@
 		</form>
 	</div>
 
-	<div class="card settings-card config-card">
-		<h2>Configuration</h2>
-		<p class="description">Adjust system behavior and monitoring preferences.</p>
-
-		<div class="config-row">
-			<div class="config-info">
-				<span class="config-label">Health Check Interval</span>
-				<span class="config-desc">How often the system pings clients to check their status.</span>
-			</div>
-			<div class="config-control">
-				<select class="config-select" bind:value={pingInterval} onchange={savePingInterval} disabled={configSaving}>
-					{#each intervalOptions as opt}
-						<option value={opt.value}>{opt.label}</option>
-					{/each}
-				</select>
-				{#if configMessage === 'saved'}
-					<span class="config-saved">Saved</span>
-				{/if}
-			</div>
-		</div>
-	</div>
 </div>
 
 <style>
@@ -210,62 +142,6 @@
 		border: 1px solid var(--color-border);
 		border-radius: 12px;
 		padding: 1.5rem;
-	}
-
-	.config-card {
-		margin-top: 1.5rem;
-	}
-
-	.config-row {
-		display: flex;
-		align-items: center;
-		justify-content: space-between;
-		gap: 1rem;
-	}
-
-	.config-info {
-		display: flex;
-		flex-direction: column;
-		gap: 0.15rem;
-	}
-
-	.config-label {
-		font-size: 0.875rem;
-		font-weight: 600;
-		color: var(--color-text);
-	}
-
-	.config-desc {
-		font-size: 0.8rem;
-		color: var(--color-text-muted);
-	}
-
-	.config-control {
-		display: flex;
-		align-items: center;
-		gap: 0.5rem;
-		flex-shrink: 0;
-	}
-
-	.config-select {
-		padding: 0.5rem 0.75rem;
-		border: 1px solid var(--color-border);
-		border-radius: 8px;
-		background-color: var(--color-surface);
-		color: var(--color-text);
-		font-size: 0.8rem;
-		cursor: pointer;
-	}
-
-	.config-select:focus {
-		outline: none;
-		border-color: #1aaf92;
-	}
-
-	.config-saved {
-		font-size: 0.75rem;
-		font-weight: 600;
-		color: #22c55e;
 	}
 
 	.settings-card h2 {

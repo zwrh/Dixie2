@@ -62,103 +62,29 @@
 
 	const stopRefresh = onRefresh(() => {
 		loadStats();
-		fetchContactRate(timeRange);
+		fetchRecentBeacons();
 		loadRecentCommands();
 	});
 
-	// --- Contact Rate Line Chart ---
-	type TimeRange = 'day' | 'week' | 'month' | 'year' | 'all';
-	type DataPoint = { date: Date; contacts: number };
+	// --- Recent Beacons ---
+	type BeaconEntry = { timestamp: string; ip_address: string; identifier: string | null };
 
-	let timeRange = $state<TimeRange>('month');
-	let contactData = $state<DataPoint[]>([]);
-	let chartLoading = $state(true);
+	let recentBeacons = $state<BeaconEntry[]>([]);
+	let beaconsLoading = $state(true);
 
-	async function fetchContactRate(range: TimeRange) {
-		chartLoading = true;
+	async function fetchRecentBeacons() {
+		beaconsLoading = true;
 		try {
-			const res = await authFetch(`/api/contact-rate?range=${range}`);
+			const res = await authFetch('/api/contact-rate?range=day');
 			if (res.ok) {
-				const rows: { timestamp: string; total: number; responsive: number }[] = await res.json();
-				contactData = rows.map(r => ({
-					date: new Date(r.timestamp + 'Z'),
-					contacts: r.responsive
-				}));
+				const rows: BeaconEntry[] = await res.json();
+				recentBeacons = rows.slice(0, 10); // Show last 10 beacons
 			}
 		} catch { /* silent */ }
-		chartLoading = false;
+		beaconsLoading = false;
 	}
 
-	function changeRange(range: TimeRange) {
-		timeRange = range;
-		fetchContactRate(range);
-	}
-
-	fetchContactRate('month');
-
-	const chartW = 500;
-	const chartH = 180;
-	const padL = 40;
-	const padR = 10;
-	const padT = 10;
-	const padB = 24;
-	const plotW = chartW - padL - padR;
-	const plotH = chartH - padT - padB;
-
-	const yMax = $derived(Math.max(...contactData.map(d => d.contacts), 1));
-	const yTicks = $derived(() => {
-		const step = Math.ceil(yMax / 4);
-		const ticks = [];
-		for (let v = 0; v <= yMax; v += step) ticks.push(v);
-		if (ticks[ticks.length - 1] < yMax) ticks.push(yMax);
-		return ticks;
-	});
-
-	const hasData = $derived(contactData.length > 1);
-
-	const linePath = $derived(
-		hasData
-			? contactData.map((d, i) => {
-					const x = padL + (i / (contactData.length - 1)) * plotW;
-					const y = padT + plotH - (d.contacts / yMax) * plotH;
-					return `${i === 0 ? 'M' : 'L'}${x},${y}`;
-				}).join(' ')
-			: ''
-	);
-
-	const areaPath = $derived(
-		linePath +
-		` L${padL + plotW},${padT + plotH} L${padL},${padT + plotH} Z`
-	);
-
-	function formatLabel(d: Date, range: TimeRange): string {
-		switch (range) {
-			case 'day': return d.getHours().toString().padStart(2, '0') + ':00';
-			case 'week': return d.toLocaleDateString('en', { weekday: 'short' });
-			case 'month': return d.getDate().toString();
-			case 'year': return d.toLocaleDateString('en', { month: 'short' });
-			case 'all': return d.toLocaleDateString('en', { month: 'short', year: '2-digit' });
-		}
-	}
-
-	const xLabels = $derived(() => {
-		const maxLabels = 6;
-		const step = Math.max(1, Math.floor(contactData.length / maxLabels));
-		return contactData
-			.filter((_, i) => i % step === 0 || i === contactData.length - 1)
-			.map((d) => ({
-				label: formatLabel(d.date, timeRange),
-				x: padL + (contactData.indexOf(d) / (contactData.length - 1)) * plotW
-			}));
-	});
-
-	const rangeOptions: { value: TimeRange; label: string }[] = [
-		{ value: 'day', label: 'Day' },
-		{ value: 'week', label: 'Week' },
-		{ value: 'month', label: 'Month' },
-		{ value: 'year', label: 'Year' },
-		{ value: 'all', label: 'All Time' }
-	];
+	fetchRecentBeacons();
 
 	// --- Dixie Pup ---
 	type PupAction = 'idle' | 'feed' | 'pet' | 'trick' | 'sleep';
@@ -303,51 +229,22 @@
 		</div>
 
 		<div class="card chart-card">
-			<div class="chart-header">
-				<h2>Contact Rate</h2>
-				<select class="range-select" bind:value={timeRange} onchange={() => changeRange(timeRange)}>
-					{#each rangeOptions as opt}
-						<option value={opt.value}>{opt.label}</option>
+			<h2>Recent Beacons</h2>
+			{#if beaconsLoading}
+				<div class="chart-placeholder">Loading...</div>
+			{:else if recentBeacons.length === 0}
+				<div class="chart-placeholder">No beacons received yet.</div>
+			{:else}
+				<div class="beacon-list">
+					{#each recentBeacons as beacon}
+						<div class="beacon-item">
+							<span class="beacon-identifier">{beacon.identifier ?? 'Unknown'}</span>
+							<span class="beacon-ip">{beacon.ip_address}</span>
+							<span class="beacon-time">{beacon.timestamp}</span>
+						</div>
 					{/each}
-				</select>
-			</div>
-			<div class="line-chart-container">
-				{#if chartLoading}
-					<div class="chart-placeholder">Loading...</div>
-				{:else if !hasData}
-					<div class="chart-placeholder">No contact data yet. Ping cycles will populate this chart.</div>
-				{:else}
-					<svg viewBox="0 0 {chartW} {chartH}" class="line-chart-svg">
-						<!-- Y grid lines & labels -->
-						{#each yTicks() as tick}
-							{@const y = padT + plotH - (tick / yMax) * plotH}
-							<line x1={padL} y1={y} x2={padL + plotW} y2={y} stroke="var(--color-border)" stroke-width="0.5" />
-							<text x={padL - 6} y={y + 3} text-anchor="end" fill="var(--color-text-muted)" font-size="9">{tick}</text>
-						{/each}
-						<!-- Area fill -->
-						<path d={areaPath} fill="url(#contactGrad)" />
-						<!-- Line -->
-						<path d={linePath} fill="none" stroke="#1aaf92" stroke-width="2" stroke-linejoin="round" />
-						<!-- Data dots -->
-						{#each contactData as d, i}
-							{@const x = padL + (i / (contactData.length - 1)) * plotW}
-							{@const y = padT + plotH - (d.contacts / yMax) * plotH}
-							<circle cx={x} cy={y} r="2.5" fill="#1aaf92" />
-						{/each}
-						<!-- X labels -->
-						{#each xLabels() as lbl}
-							<text x={lbl.x} y={chartH - 4} text-anchor="middle" fill="var(--color-text-muted)" font-size="9">{lbl.label}</text>
-						{/each}
-						<!-- Gradient def -->
-						<defs>
-							<linearGradient id="contactGrad" x1="0" y1="0" x2="0" y2="1">
-								<stop offset="0%" stop-color="#1aaf92" stop-opacity="0.25" />
-								<stop offset="100%" stop-color="#1aaf92" stop-opacity="0.02" />
-							</linearGradient>
-						</defs>
-					</svg>
-				{/if}
-			</div>
+				</div>
+			{/if}
 		</div>
 
 		<div class="card chart-card">
@@ -457,45 +354,8 @@
 		margin: 0 0 1rem;
 	}
 
-	.chart-header {
-		display: flex;
-		align-items: center;
-		justify-content: space-between;
-		margin-bottom: 1rem;
-	}
-
-	.chart-header h2 {
-		margin: 0;
-	}
-
-	.range-select {
-		padding: 0.35rem 0.6rem;
-		border: 1px solid var(--color-border);
-		border-radius: 6px;
-		background-color: var(--color-surface);
-		color: var(--color-text);
-		font-size: 0.75rem;
-		font-weight: 500;
-		cursor: pointer;
-		appearance: auto;
-	}
-
-	.range-select:focus {
-		outline: none;
-		border-color: #1aaf92;
-	}
-
-	.line-chart-container {
-		height: 200px;
-	}
-
-	.line-chart-svg {
-		width: 100%;
-		height: 100%;
-	}
-
 	.chart-placeholder {
-		height: 100%;
+		height: 200px;
 		display: flex;
 		align-items: center;
 		justify-content: center;
@@ -503,6 +363,43 @@
 		font-size: 0.8rem;
 		text-align: center;
 		padding: 1rem;
+	}
+
+	.beacon-list {
+		display: flex;
+		flex-direction: column;
+		gap: 0.4rem;
+		max-height: 220px;
+		overflow-y: auto;
+	}
+
+	.beacon-item {
+		display: flex;
+		align-items: center;
+		gap: 0.75rem;
+		padding: 0.5rem 0.75rem;
+		background-color: var(--color-surface);
+		border: 1px solid var(--color-border);
+		border-radius: 6px;
+		font-size: 0.8rem;
+	}
+
+	.beacon-identifier {
+		font-weight: 600;
+		color: #1aaf92;
+		min-width: 80px;
+	}
+
+	.beacon-ip {
+		color: var(--color-text);
+		font-family: 'SF Mono', 'Fira Code', monospace;
+		font-size: 0.75rem;
+	}
+
+	.beacon-time {
+		margin-left: auto;
+		color: var(--color-text-muted);
+		font-size: 0.7rem;
 	}
 
 	.donut-container {

